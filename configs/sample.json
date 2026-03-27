@@ -108,6 +108,11 @@
   "settings": {
     "max_turns": 30,
     "ai_provider": "mock",
+    "ai_model": null,
+    "temperature": 0.7,
+    "max_tokens": 1024,
+    "supabase_url": null,
+    "supabase_anon_key": null,
     "endpoint": null
   }
 }

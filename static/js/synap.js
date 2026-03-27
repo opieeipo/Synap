@@ -1,6 +1,6 @@
 /**
  * Synap — AI Qualitative Research Interviewer
- * Phase 1: Static frontend with mock AI support
+ * Phase 2: Real backend support with Supabase Edge Functions
  */
 
 (function () {
@@ -9,6 +9,7 @@
   // ── State ──────────────────────────────────────────────────
   let config = null;
   let session = null;
+  let backendUrl = null; // Base URL for Edge Functions
 
   // ── DOM refs ───────────────────────────────────────────────
   const $ = (sel) => document.querySelector(sel);
@@ -42,12 +43,31 @@
         "<p>" + escapeHtml(err.message) + "</p></div>";
       return;
     }
+
+    // Resolve backend URL from config or query params
+    backendUrl = resolveBackendUrl();
+
     showConsent();
   }
 
   function getConfigPath() {
     const params = new URLSearchParams(window.location.search);
     return params.get("config") || "configs/sample.json";
+  }
+
+  function resolveBackendUrl() {
+    const params = new URLSearchParams(window.location.search);
+    // Priority: query param > config setting
+    const supabaseUrl = params.get("supabase_url") || config.settings.supabase_url;
+    if (supabaseUrl) {
+      return supabaseUrl.replace(/\/$/, "") + "/functions/v1";
+    }
+    // Fall back to explicit endpoint if set
+    return config.settings.endpoint || null;
+  }
+
+  function isLiveMode() {
+    return config.settings.ai_provider !== "mock" && backendUrl !== null;
   }
 
   // ── Consent Flow ───────────────────────────────────────────
@@ -68,15 +88,42 @@
     consentDecline.addEventListener("click", onDecline);
   }
 
-  function onAccept() {
+  async function onAccept() {
     session = createSession();
     session.events.push({
       type: "consent_accepted",
       timestamp: new Date().toISOString(),
     });
+
     consentOverlay.hidden = true;
     chatContainer.hidden = false;
-    startInterview();
+
+    if (isLiveMode()) {
+      // Register session with backend
+      try {
+        setInputEnabled(false);
+        showTyping();
+        const result = await callBackend("session-start", {
+          session_id: session.id,
+          interview_config: config,
+        });
+        hideTyping();
+        appendMessage("ai", result.greeting);
+        session.messages.push({ role: "ai", text: result.greeting, timestamp: now() });
+      } catch (err) {
+        hideTyping();
+        console.error("[Synap] Failed to start session:", err);
+        appendMessage("ai", config.persona.greeting);
+        session.messages.push({ role: "ai", text: config.persona.greeting, timestamp: now() });
+      }
+      setInputEnabled(true);
+    } else {
+      startInterviewMock();
+    }
+
+    bindInputEvents();
+    updateTopic();
+    chatInput.focus();
   }
 
   function onDecline() {
@@ -105,12 +152,10 @@
   }
 
   // ── Interview Logic ────────────────────────────────────────
-  function startInterview() {
-    bindInputEvents();
+  function startInterviewMock() {
     const greeting = config.persona.greeting;
     appendMessage("ai", greeting);
     session.messages.push({ role: "ai", text: greeting, timestamp: now() });
-    updateTopic();
   }
 
   function bindInputEvents() {
@@ -121,7 +166,6 @@
   }
 
   function onInputChange() {
-    // Auto-resize textarea
     chatInput.style.height = "auto";
     chatInput.style.height = chatInput.scrollHeight + "px";
     sendBtn.disabled = chatInput.value.trim().length === 0;
@@ -158,7 +202,10 @@
     setInputEnabled(false);
     showTyping();
     try {
-      const result = await getAIResponse(text);
+      const result = isLiveMode()
+        ? await getLiveResponse(text)
+        : await mockAIResponse(text);
+
       hideTyping();
       appendMessage("ai", result.reply);
       session.messages.push({ role: "ai", text: result.reply, timestamp: now() });
@@ -170,9 +217,9 @@
         });
       }
 
-      // Advance question pointer based on AI hint
+      // Handle question advancement
       if (result.next_question_hint === "closing" || result.next_question_hint === "end") {
-        // AI signals interview is wrapping up — let it play out naturally
+        // AI signals interview is wrapping up
       } else if (result.advance) {
         advanceQuestion();
       }
@@ -180,110 +227,57 @@
       updateTopic();
     } catch (err) {
       hideTyping();
+      console.error("[Synap] Response error:", err);
       appendMessage("ai", "I'm sorry, I encountered a technical issue. Could you repeat that?");
     }
     setInputEnabled(true);
     chatInput.focus();
   }
 
-  function advanceQuestion() {
-    // Check branching rules first
-    if (session.pending_branch) {
-      session.pending_branch = null;
-      return; // Branch question was already inserted
-    }
-
-    const questions = config.guide.questions;
-    const currentQ = questions[session.question_index];
-
-    // Check if any branch triggers apply
-    if (config.guide.branching) {
-      for (const rule of config.guide.branching) {
-        if (rule.trigger.after === currentQ.id) {
-          const lastThemes = session.coded_themes[session.coded_themes.length - 1];
-          if (lastThemes) {
-            const themeCodes = lastThemes.themes.map((t) => t.code || t);
-            const match = rule.trigger.if_themes.some((t) => themeCodes.includes(t));
-            if (match) {
-              session.pending_branch = rule.follow_up;
-              return; // Will use branch question on next turn
-            }
-          }
-        }
-      }
-    }
-
-    if (session.question_index < questions.length - 1) {
-      session.question_index++;
-    }
-  }
-
-  function getCurrentQuestion() {
-    if (session.pending_branch) return session.pending_branch;
-    return config.guide.questions[session.question_index] || null;
-  }
-
-  function updateTopic() {
-    const q = getCurrentQuestion();
-    chatTopic.textContent = q ? q.topic : "";
-  }
-
-  async function onEndInterview() {
-    await endInterview("participant_ended");
-  }
-
-  async function endInterview(reason) {
-    session.interview_ended = true;
-    session.events.push({ type: "interview_ended", reason: reason, timestamp: now() });
-
-    // Show closing message
-    const closing = config.guide.closing;
-    appendMessage("ai", closing);
-    session.messages.push({ role: "ai", text: closing, timestamp: now() });
-
-    setInputEnabled(false);
-
-    // Brief pause then show complete screen
-    await delay(2000);
-    chatContainer.hidden = true;
-    completeScreen.hidden = false;
-
-    // Log session data to console for Phase 1
-    console.log("[Synap] Session complete:", JSON.stringify(session, null, 2));
-  }
-
-  // ── AI Provider ────────────────────────────────────────────
-  async function getAIResponse(userMessage) {
-    const provider = config.settings.ai_provider || "mock";
-
-    if (provider === "mock") {
-      return mockAIResponse(userMessage);
-    }
-
-    // Real endpoint — will be used in Phase 2+
-    const resp = await fetch(config.settings.endpoint, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        session_id: session.id,
-        message: userMessage,
-        interview_config_id: config.id,
-      }),
+  // ── Live backend ───────────────────────────────────────────
+  async function getLiveResponse(userMessage) {
+    return callBackend("chat", {
+      session_id: session.id,
+      message: userMessage,
+      interview_config_id: config.id,
     });
-    if (!resp.ok) throw new Error("AI endpoint error: " + resp.status);
+  }
+
+  async function callBackend(fn, body) {
+    const url = backendUrl + "/" + fn;
+    const headers = { "Content-Type": "application/json" };
+
+    // Add Supabase anon key if available
+    const anonKey = config.settings.supabase_anon_key ||
+      new URLSearchParams(window.location.search).get("supabase_anon_key");
+    if (anonKey) {
+      headers["Authorization"] = "Bearer " + anonKey;
+      headers["apikey"] = anonKey;
+    }
+
+    const resp = await fetch(url, {
+      method: "POST",
+      headers: headers,
+      body: JSON.stringify(body),
+    });
+
+    if (!resp.ok) {
+      const errText = await resp.text();
+      throw new Error("Backend error " + resp.status + ": " + errText);
+    }
+
     return resp.json();
   }
 
+  // ── Mock mode (Phase 1 fallback) ──────────────────────────
   function mockAIResponse(userMessage) {
     return new Promise((resolve) => {
       const q = getCurrentQuestion();
       const questions = config.guide.questions;
       const isLast = session.question_index >= questions.length - 1 && !session.pending_branch;
 
-      // Simple theme detection for mock mode
       const detectedThemes = detectThemesMock(userMessage);
 
-      // Build a contextual response
       let reply;
       if (isLast) {
         reply = "That's a really insightful perspective, thank you for sharing that. " + config.guide.closing;
@@ -298,7 +292,6 @@
         return;
       }
 
-      // Pick a reflective opener based on message length
       const openers = [
         "Thank you for sharing that.",
         "That's really helpful context.",
@@ -308,7 +301,6 @@
       ];
       const opener = openers[session.turn_count % openers.length];
 
-      // Decide: probe deeper on current question or advance
       const shouldProbe = Math.random() < 0.35 && q && q.probes && q.probes.length > 0;
       if (shouldProbe) {
         const probeIdx = Math.min(session.turn_count % q.probes.length, q.probes.length - 1);
@@ -320,7 +312,6 @@
           advance: false,
         });
       } else {
-        // Advance to next question
         const nextIdx = Math.min(session.question_index + 1, questions.length - 1);
         const nextQ = questions[nextIdx];
         reply = opener + " " + nextQ.text;
@@ -358,6 +349,82 @@
       }
     }
     return detected;
+  }
+
+  // ── Question tracking ──────────────────────────────────────
+  function advanceQuestion() {
+    if (session.pending_branch) {
+      session.pending_branch = null;
+      return;
+    }
+
+    const questions = config.guide.questions;
+    const currentQ = questions[session.question_index];
+
+    if (config.guide.branching) {
+      for (const rule of config.guide.branching) {
+        if (rule.trigger.after === currentQ.id) {
+          const lastThemes = session.coded_themes[session.coded_themes.length - 1];
+          if (lastThemes) {
+            const themeCodes = lastThemes.themes.map((t) => t.code || t);
+            const match = rule.trigger.if_themes.some((t) => themeCodes.includes(t));
+            if (match) {
+              session.pending_branch = rule.follow_up;
+              return;
+            }
+          }
+        }
+      }
+    }
+
+    if (session.question_index < questions.length - 1) {
+      session.question_index++;
+    }
+  }
+
+  function getCurrentQuestion() {
+    if (session.pending_branch) return session.pending_branch;
+    return config.guide.questions[session.question_index] || null;
+  }
+
+  function updateTopic() {
+    const q = getCurrentQuestion();
+    chatTopic.textContent = q ? q.topic : "";
+  }
+
+  // ── End interview ──────────────────────────────────────────
+  async function onEndInterview() {
+    await endInterview("participant_ended");
+  }
+
+  async function endInterview(reason) {
+    session.interview_ended = true;
+    session.events.push({ type: "interview_ended", reason: reason, timestamp: now() });
+
+    const closing = config.guide.closing;
+    appendMessage("ai", closing);
+    session.messages.push({ role: "ai", text: closing, timestamp: now() });
+
+    setInputEnabled(false);
+
+    // Notify backend if live
+    if (isLiveMode()) {
+      try {
+        await callBackend("session-end", {
+          session_id: session.id,
+          reason: reason,
+        });
+      } catch (err) {
+        console.error("[Synap] Failed to end session on backend:", err);
+      }
+    }
+
+    // Log session to console (useful for debugging in any mode)
+    console.log("[Synap] Session complete:", JSON.stringify(session, null, 2));
+
+    await delay(2000);
+    chatContainer.hidden = true;
+    completeScreen.hidden = false;
   }
 
   // ── UI Helpers ─────────────────────────────────────────────
