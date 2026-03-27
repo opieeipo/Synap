@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Synap Admin</title>
+  <link rel="stylesheet" href="static/css/admin.css">
+</head>
+<body>
+
+  <!-- Connect Screen -->
+  <div id="connect-screen" class="connect-overlay">
+    <div class="connect-modal">
+      <h1>Synap Admin</h1>
+      <p class="connect-sub">Connect to your Supabase project to view interview data.</p>
+      <form id="connect-form">
+        <label for="sb-url">Supabase URL</label>
+        <input type="url" id="sb-url" placeholder="https://your-project.supabase.co" required>
+        <label for="sb-key">Service Role Key</label>
+        <input type="password" id="sb-key" placeholder="eyJhbGciOi..." required>
+        <p class="connect-hint">Found in Dashboard &gt; Settings &gt; API &gt; service_role (secret)</p>
+        <button type="submit" class="btn btn-primary">Connect</button>
+        <div id="connect-error" class="connect-error" hidden></div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Main Dashboard -->
+  <div id="dashboard" hidden>
+    <nav class="sidebar">
+      <div class="sidebar-brand">
+        <h2>Synap</h2>
+        <span class="sidebar-sub">Admin</span>
+      </div>
+      <ul class="sidebar-nav">
+        <li><a href="#" class="nav-link active" data-view="sessions">Sessions</a></li>
+        <li><a href="#" class="nav-link" data-view="themes">Themes</a></li>
+        <li><a href="#" class="nav-link" data-view="export">Export</a></li>
+      </ul>
+      <div class="sidebar-footer">
+        <button id="disconnect-btn" class="btn btn-small btn-secondary">Disconnect</button>
+      </div>
+    </nav>
+
+    <main class="main-content">
+      <!-- Sessions View -->
+      <div id="view-sessions" class="view">
+        <div class="view-header">
+          <h1>Sessions</h1>
+          <div class="view-controls">
+            <select id="filter-config" class="select">
+              <option value="">All Studies</option>
+            </select>
+            <select id="filter-status" class="select">
+              <option value="">All Statuses</option>
+              <option value="active">Active</option>
+              <option value="completed">Completed</option>
+              <option value="abandoned">Abandoned</option>
+            </select>
+            <button id="refresh-sessions" class="btn btn-small btn-secondary">Refresh</button>
+          </div>
+        </div>
+        <div id="sessions-table-wrap" class="table-wrap">
+          <table class="data-table" id="sessions-table">
+            <thead>
+              <tr>
+                <th>Session ID</th>
+                <th>Study</th>
+                <th>Status</th>
+                <th>Turns</th>
+                <th>Started</th>
+                <th>Duration</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="sessions-body"></tbody>
+          </table>
+          <div id="sessions-empty" class="empty-state" hidden>No sessions found.</div>
+        </div>
+      </div>
+
+      <!-- Transcript View (nested under sessions) -->
+      <div id="view-transcript" class="view" hidden>
+        <div class="view-header">
+          <button id="back-to-sessions" class="btn btn-small btn-secondary">&larr; Back</button>
+          <h1 id="transcript-title">Transcript</h1>
+        </div>
+        <div class="transcript-meta" id="transcript-meta"></div>
+        <div class="transcript-messages" id="transcript-messages"></div>
+        <div class="transcript-themes" id="transcript-themes">
+          <h3>Detected Themes</h3>
+          <div id="transcript-theme-tags"></div>
+        </div>
+      </div>
+
+      <!-- Themes View -->
+      <div id="view-themes" class="view" hidden>
+        <div class="view-header">
+          <h1>Themes</h1>
+          <div class="view-controls">
+            <select id="theme-config-filter" class="select">
+              <option value="">All Studies</option>
+            </select>
+            <button id="refresh-themes" class="btn btn-small btn-secondary">Refresh</button>
+          </div>
+        </div>
+        <div class="themes-summary" id="themes-summary"></div>
+        <div class="table-wrap">
+          <table class="data-table" id="themes-table">
+            <thead>
+              <tr>
+                <th>Theme</th>
+                <th>Occurrences</th>
+                <th>Sessions</th>
+                <th>Avg Confidence</th>
+              </tr>
+            </thead>
+            <tbody id="themes-body"></tbody>
+          </table>
+          <div id="themes-empty" class="empty-state" hidden>No themes found.</div>
+        </div>
+      </div>
+
+      <!-- Export View -->
+      <div id="view-export" class="view" hidden>
+        <div class="view-header">
+          <h1>Export</h1>
+        </div>
+        <div class="export-options">
+          <div class="export-card">
+            <h3>Sessions</h3>
+            <p>All session metadata including status, turn count, and timestamps.</p>
+            <div class="export-actions">
+              <button class="btn btn-primary btn-small" data-export="sessions" data-format="csv">CSV</button>
+              <button class="btn btn-secondary btn-small" data-export="sessions" data-format="json">JSON</button>
+            </div>
+          </div>
+          <div class="export-card">
+            <h3>Transcripts</h3>
+            <p>Full interview transcripts with turn numbers and question IDs.</p>
+            <div class="export-actions">
+              <button class="btn btn-primary btn-small" data-export="messages" data-format="csv">CSV</button>
+              <button class="btn btn-secondary btn-small" data-export="messages" data-format="json">JSON</button>
+            </div>
+          </div>
+          <div class="export-card">
+            <h3>Coded Themes</h3>
+            <p>All thematic codes with confidence scores, linked to sessions and messages.</p>
+            <div class="export-actions">
+              <button class="btn btn-primary btn-small" data-export="coded_themes" data-format="csv">CSV</button>
+              <button class="btn btn-secondary btn-small" data-export="coded_themes" data-format="json">JSON</button>
+            </div>
+          </div>
+          <div class="export-card">
+            <h3>Events</h3>
+            <p>Consent records, session lifecycle events, and errors.</p>
+            <div class="export-actions">
+              <button class="btn btn-primary btn-small" data-export="events" data-format="csv">CSV</button>
+              <button class="btn btn-secondary btn-small" data-export="events" data-format="json">JSON</button>
+            </div>
+          </div>
+        </div>
+        <div class="export-filter">
+          <label for="export-config-filter">Filter by study:</label>
+          <select id="export-config-filter" class="select">
+            <option value="">All Studies</option>
+          </select>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="static/js/admin.js"></script>
+</body>
+</html>

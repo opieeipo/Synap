@@ -88,9 +88,14 @@ Synap/
 ├── configs/
 │   ├── sample.json                     # Example interview config
 │   └── CONFIG_GUIDE.md                 # Field-by-field config documentation
+├── admin.html                          # Researcher admin dashboard
 ├── static/
-│   ├── css/synap.css                   # UI styles
-│   └── js/synap.js                     # Frontend logic (mock + live modes)
+│   ├── css/
+│   │   ├── synap.css                   # Interview UI styles
+│   │   └── admin.css                   # Admin dashboard styles
+│   └── js/
+│       ├── synap.js                    # Frontend logic (mock + live modes)
+│       └── admin.js                    # Admin dashboard logic
 ├── supabase/
 │   ├── config.toml                     # Supabase project config (created by supabase init)
 │   ├── migrations/
@@ -188,7 +193,17 @@ The launcher starts a local server and opens the browser automatically.
 1. **Static chatbot** — HTML chat UI with mock AI and consent flow. *(Complete)*
 2. **Supabase backend** — Edge Functions, multi-provider AI, persistent storage. *(Complete)*
 3. **Azure/SharePoint adapter** — Corporate deployment target sharing the same frontend.
-4. **Researcher admin UI** — Dashboard for reviewing transcripts, coded themes, and managing interview configs.
+4. **Researcher admin UI** — Dashboard for reviewing transcripts, coded themes, and exporting data. *(Complete)*
+
+### Admin Dashboard
+
+Access the admin UI at `admin.html` (e.g., `http://localhost:8000/admin.html`). Connect using your Supabase URL and **service role key** (not the anon key — the admin needs full read access).
+
+Features:
+- **Sessions** — View all interview sessions with status, turn count, and duration. Filter by study or status.
+- **Transcripts** — Click any session to read the full transcript with role labels, turn numbers, and detected themes.
+- **Themes** — Aggregated view of all detected themes across sessions with occurrence counts, session counts, and average confidence scores.
+- **Export** — Download sessions, transcripts, coded themes, or events as CSV or JSON. Filter exports by study.
 
 ## License
 
