@@ -67,7 +67,7 @@ The researcher's primary artifact. Defines:
 - **AI persona and constraints** — System prompt the model receives
 - **Settings** — AI provider, model, temperature, Supabase connection
 
-See `configs/sample.json` for a complete example.
+See `configs/sample.json` for a complete example and `configs/CONFIG_GUIDE.md` for detailed field-by-field documentation.
 
 ### Database Schema
 
@@ -83,12 +83,16 @@ Supabase (Postgres) with four tables:
 ```
 Synap/
 ├── index.html                          # Main frontend shell
+├── run.sh                              # macOS/Linux launcher
+├── run.bat                             # Windows launcher
 ├── configs/
-│   └── sample.json                     # Example interview config
+│   ├── sample.json                     # Example interview config
+│   └── CONFIG_GUIDE.md                 # Field-by-field config documentation
 ├── static/
 │   ├── css/synap.css                   # UI styles
 │   └── js/synap.js                     # Frontend logic (mock + live modes)
 ├── supabase/
+│   ├── config.toml                     # Supabase project config (created by supabase init)
 │   ├── migrations/
 │   │   └── 001_create_tables.sql       # Database schema
 │   └── functions/
@@ -115,10 +119,17 @@ Synap/
 ### Mock Mode (no backend required)
 
 ```bash
-cd Synap
-python3 -m http.server 8000
-# Open http://localhost:8000
+./run.sh                            # Default config (configs/sample.json)
+./run.sh configs/my-study.json      # Specific config
 ```
+
+Or on Windows:
+```
+run.bat
+run.bat configs\my-study.json
+```
+
+The launcher starts a local server and opens the browser automatically.
 
 ### Live Mode (Supabase)
 
@@ -149,6 +160,7 @@ python3 -m http.server 8000
    ```bash
    supabase secrets set --env-file .env
    ```
+   > **Note:** You'll see warnings that `SUPABASE_` prefixed vars are skipped — this is expected. Supabase injects those automatically. Your AI provider keys (e.g., `ANTHROPIC_API_KEY`) are what get pushed.
 
 5. Deploy the Edge Functions:
    ```bash
@@ -157,10 +169,19 @@ python3 -m http.server 8000
    supabase functions deploy session-end
    ```
 
-6. Update your interview config (`configs/sample.json` or your own) with:
-   - `supabase_url` — your project URL (e.g., `https://abcdefghijklmnop.supabase.co`)
-   - `supabase_anon_key` — your project's anon/public key (found in Dashboard > Settings > API)
+6. Copy `configs/sample.json` to a new config and update it:
+   ```bash
+   cp configs/sample.json configs/my-study.json
+   ```
+   Set the following in the `settings` block:
+   - `supabase_url` — your project URL (e.g., `"https://abcdefghijklmnop.supabase.co"`)
+   - `supabase_anon_key` — your project's **anon / public** key. This is a long JWT starting with `eyJhbGciOi...`, found in Dashboard > Settings > API > Project API keys.
    - `ai_provider` — set to `"claude"`, `"openai"`, `"azure"`, or `"gemini"`
+
+7. Launch with your config:
+   ```bash
+   ./run.sh configs/my-study.json
+   ```
 
 ## Build Phases
 

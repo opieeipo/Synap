@@ -1,3 +1,4 @@
 .env
 .DS_Store
 supabase/.temp
+configs/test.json
