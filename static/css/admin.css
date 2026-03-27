@@ -535,6 +535,208 @@ html, body {
   font-size: 13px;
 }
 
+/* === Config Builder === */
+.builder-layout {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+}
+
+.builder-form {
+  flex: 1;
+  min-width: 0;
+}
+
+.builder-section {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  margin-bottom: 16px;
+  background: var(--surface);
+}
+
+.builder-section legend {
+  font-size: 14px;
+  font-weight: 700;
+  padding: 0 8px;
+  color: var(--text);
+}
+
+.field {
+  margin-bottom: 12px;
+}
+
+.field:last-child {
+  margin-bottom: 0;
+}
+
+.field label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 4px;
+  color: var(--text-muted);
+}
+
+.field input,
+.field textarea,
+.field select {
+  width: 100%;
+  padding: 8px 10px;
+  font-family: var(--font);
+  font-size: 13px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  background: var(--bg);
+  color: var(--text);
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.field input:focus,
+.field textarea:focus,
+.field select:focus {
+  border-color: var(--primary);
+}
+
+.field textarea {
+  resize: vertical;
+}
+
+.field-row {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.field-row .field {
+  flex: 1;
+  margin-bottom: 0;
+}
+
+.field-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+}
+
+/* Repeatable items (questions, themes, branches) */
+.builder-item {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 14px;
+  margin-bottom: 10px;
+  background: var(--bg);
+  position: relative;
+}
+
+.builder-item-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.builder-item-header .item-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.builder-item-header .item-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 4px;
+}
+
+.btn-icon {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  border-radius: var(--radius-xs);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  color: var(--text-muted);
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.btn-icon:hover {
+  color: var(--text);
+  border-color: var(--text-muted);
+}
+
+.btn-icon-danger:hover {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+/* Probes list */
+.probes-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.probe-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.probe-row input {
+  flex: 1;
+}
+
+/* Preview panel */
+.builder-preview {
+  width: 380px;
+  flex-shrink: 0;
+  position: sticky;
+  top: 24px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.builder-preview[hidden] {
+  display: none;
+}
+
+.preview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.preview-header h3 {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.preview-json {
+  padding: 16px;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.5;
+  max-height: 70vh;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--text);
+  margin: 0;
+}
+
 /* === Responsive === */
 @media (max-width: 768px) {
   :root {

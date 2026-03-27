@@ -36,6 +36,7 @@
         <li><a href="#" class="nav-link active" data-view="sessions">Sessions</a></li>
         <li><a href="#" class="nav-link" data-view="themes">Themes</a></li>
         <li><a href="#" class="nav-link" data-view="export">Export</a></li>
+        <li><a href="#" class="nav-link" data-view="builder">Config Builder</a></li>
       </ul>
       <div class="sidebar-footer">
         <button id="disconnect-btn" class="btn btn-small btn-secondary">Disconnect</button>
@@ -167,6 +168,177 @@
           </select>
         </div>
       </div>
+      <!-- Config Builder View -->
+      <div id="view-builder" class="view" hidden>
+        <div class="view-header">
+          <h1>Config Builder</h1>
+          <div class="view-controls">
+            <label class="btn btn-small btn-secondary">
+              Load JSON <input type="file" id="builder-load" accept=".json" hidden>
+            </label>
+            <button id="builder-preview" class="btn btn-small btn-secondary">Preview</button>
+            <button id="builder-download" class="btn btn-small btn-primary">Download JSON</button>
+          </div>
+        </div>
+
+        <div class="builder-layout">
+          <!-- Left: Form -->
+          <div class="builder-form">
+
+            <!-- Study Info -->
+            <fieldset class="builder-section">
+              <legend>Study Info</legend>
+              <div class="field-row">
+                <div class="field">
+                  <label for="b-id">Study ID</label>
+                  <input type="text" id="b-id" placeholder="my-study-2026">
+                </div>
+                <div class="field">
+                  <label for="b-version">Version</label>
+                  <input type="text" id="b-version" placeholder="1.0" value="1.0">
+                </div>
+              </div>
+              <div class="field">
+                <label for="b-title">Title</label>
+                <input type="text" id="b-title" placeholder="Employee Experience Interview">
+              </div>
+              <div class="field">
+                <label for="b-description">Description</label>
+                <textarea id="b-description" rows="2" placeholder="Internal description (not shown to participants)"></textarea>
+              </div>
+            </fieldset>
+
+            <!-- IRB -->
+            <fieldset class="builder-section">
+              <legend>IRB / Consent</legend>
+              <div class="field">
+                <label for="b-irb-disclosure">Disclosure Text</label>
+                <textarea id="b-irb-disclosure" rows="4" placeholder="Informed consent language shown to participants..."></textarea>
+              </div>
+              <div class="field-row">
+                <div class="field">
+                  <label for="b-irb-pi">Principal Investigator</label>
+                  <input type="text" id="b-irb-pi" placeholder="Dr. Jane Smith">
+                </div>
+                <div class="field">
+                  <label for="b-irb-protocol">Protocol Number</label>
+                  <input type="text" id="b-irb-protocol" placeholder="IRB-2026-0042">
+                </div>
+              </div>
+              <div class="field-row">
+                <div class="field">
+                  <label for="b-irb-email">Contact Email</label>
+                  <input type="email" id="b-irb-email" placeholder="research@example.org">
+                </div>
+                <div class="field">
+                  <label for="b-irb-institution">Institution</label>
+                  <input type="text" id="b-irb-institution" placeholder="Example University">
+                </div>
+              </div>
+            </fieldset>
+
+            <!-- Persona -->
+            <fieldset class="builder-section">
+              <legend>AI Persona</legend>
+              <div class="field">
+                <label for="b-persona-name">Name</label>
+                <input type="text" id="b-persona-name" placeholder="Synap" value="Synap">
+              </div>
+              <div class="field">
+                <label for="b-persona-prompt">System Prompt</label>
+                <textarea id="b-persona-prompt" rows="5" placeholder="Instructions for how the AI interviewer should behave..."></textarea>
+              </div>
+              <div class="field">
+                <label for="b-persona-greeting">Greeting</label>
+                <textarea id="b-persona-greeting" rows="2" placeholder="First message shown to participants after consent..."></textarea>
+              </div>
+            </fieldset>
+
+            <!-- Questions -->
+            <fieldset class="builder-section">
+              <legend>Interview Guide</legend>
+              <div id="b-questions-list"></div>
+              <button id="b-add-question" class="btn btn-small btn-secondary" type="button">+ Add Question</button>
+              <div class="field" style="margin-top: 16px;">
+                <label for="b-closing">Closing Message</label>
+                <textarea id="b-closing" rows="2" placeholder="Thank you message when the interview ends..."></textarea>
+              </div>
+            </fieldset>
+
+            <!-- Branching -->
+            <fieldset class="builder-section">
+              <legend>Branching Rules</legend>
+              <p class="field-hint">Conditional follow-up questions triggered by detected themes.</p>
+              <div id="b-branching-list"></div>
+              <button id="b-add-branch" class="btn btn-small btn-secondary" type="button">+ Add Branching Rule</button>
+            </fieldset>
+
+            <!-- Coding Schema -->
+            <fieldset class="builder-section">
+              <legend>Coding Schema</legend>
+              <p class="field-hint">Thematic codes the AI uses to tag participant responses.</p>
+              <div id="b-themes-list"></div>
+              <button id="b-add-theme" class="btn btn-small btn-secondary" type="button">+ Add Theme</button>
+            </fieldset>
+
+            <!-- Settings -->
+            <fieldset class="builder-section">
+              <legend>Settings</legend>
+              <div class="field-row">
+                <div class="field">
+                  <label for="b-provider">AI Provider</label>
+                  <select id="b-provider" class="select">
+                    <option value="mock">Mock (no API)</option>
+                    <option value="claude">Claude (Anthropic)</option>
+                    <option value="openai">OpenAI</option>
+                    <option value="azure">Azure OpenAI</option>
+                    <option value="gemini">Gemini (Google)</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="b-model">Model</label>
+                  <input type="text" id="b-model" placeholder="claude-sonnet-4-20250514">
+                </div>
+              </div>
+              <div class="field-row">
+                <div class="field">
+                  <label for="b-temperature">Temperature</label>
+                  <input type="number" id="b-temperature" value="0.7" step="0.1" min="0" max="2">
+                </div>
+                <div class="field">
+                  <label for="b-max-tokens">Max Tokens</label>
+                  <input type="number" id="b-max-tokens" value="1024" step="256" min="256">
+                </div>
+                <div class="field">
+                  <label for="b-max-turns">Max Turns</label>
+                  <input type="number" id="b-max-turns" value="30" min="1">
+                </div>
+              </div>
+              <div class="field-row">
+                <div class="field">
+                  <label for="b-supabase-url">Supabase URL</label>
+                  <input type="url" id="b-supabase-url" placeholder="https://your-project.supabase.co">
+                </div>
+                <div class="field">
+                  <label for="b-supabase-key">Supabase Anon Key</label>
+                  <input type="text" id="b-supabase-key" placeholder="eyJhbGciOi...">
+                </div>
+              </div>
+            </fieldset>
+
+          </div>
+
+          <!-- Right: Preview Panel -->
+          <div class="builder-preview" id="builder-preview-panel" hidden>
+            <div class="preview-header">
+              <h3>Preview</h3>
+              <button id="builder-close-preview" class="btn btn-small btn-secondary">Close</button>
+            </div>
+            <pre id="builder-json-output" class="preview-json"></pre>
+          </div>
+        </div>
+      </div>
+
     </main>
   </div>
 

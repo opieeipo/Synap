@@ -492,6 +492,327 @@
     return secs + "s";
   }
 
+  // ── Config Builder ───────────────────────────────────────────
+  let questionCounter = 0;
+  let branchCounter = 0;
+  let themeCounter = 0;
+
+  function initBuilder() {
+    $("#b-add-question").addEventListener("click", () => addQuestion());
+    $("#b-add-branch").addEventListener("click", () => addBranch());
+    $("#b-add-theme").addEventListener("click", () => addTheme());
+    $("#builder-download").addEventListener("click", downloadConfig);
+    $("#builder-preview").addEventListener("click", togglePreview);
+    $("#builder-close-preview").addEventListener("click", togglePreview);
+    $("#builder-load").addEventListener("change", loadConfigFile);
+  }
+
+  // ── Question management ────────────────────────────────────
+  function addQuestion(data) {
+    questionCounter++;
+    const idx = questionCounter;
+    const list = $("#b-questions-list");
+
+    const item = document.createElement("div");
+    item.className = "builder-item";
+    item.dataset.qIdx = idx;
+    item.innerHTML =
+      '<div class="builder-item-header">' +
+        '<span class="item-label">Question ' + idx + '</span>' +
+        '<div class="item-actions">' +
+          '<button class="btn-icon" title="Move up" data-action="move-up">&uarr;</button>' +
+          '<button class="btn-icon" title="Move down" data-action="move-down">&darr;</button>' +
+          '<button class="btn-icon btn-icon-danger" title="Remove" data-action="remove">&times;</button>' +
+        '</div>' +
+      '</div>' +
+      '<div class="field-row">' +
+        '<div class="field"><label>ID</label><input type="text" class="q-id" placeholder="q' + idx + '" value="' + esc(data?.id || "q" + idx) + '"></div>' +
+        '<div class="field"><label>Topic</label><input type="text" class="q-topic" placeholder="Topic name" value="' + esc(data?.topic || "") + '"></div>' +
+      '</div>' +
+      '<div class="field"><label>Question Text</label><textarea class="q-text" rows="2" placeholder="The main question to ask...">' + esc(data?.text || "") + '</textarea></div>' +
+      '<div class="field"><label>Probes</label><div class="probes-list"></div>' +
+        '<button class="btn btn-small btn-secondary add-probe-btn" type="button">+ Add Probe</button>' +
+      '</div>';
+
+    list.appendChild(item);
+
+    // Wire up actions
+    item.querySelector('[data-action="remove"]').addEventListener("click", () => {
+      item.remove();
+      renumberQuestions();
+    });
+    item.querySelector('[data-action="move-up"]').addEventListener("click", () => {
+      const prev = item.previousElementSibling;
+      if (prev) { list.insertBefore(item, prev); renumberQuestions(); }
+    });
+    item.querySelector('[data-action="move-down"]').addEventListener("click", () => {
+      const next = item.nextElementSibling;
+      if (next) { list.insertBefore(next, item); renumberQuestions(); }
+    });
+    item.querySelector(".add-probe-btn").addEventListener("click", () => {
+      addProbe(item.querySelector(".probes-list"), "");
+    });
+
+    // Add existing probes
+    if (data?.probes) {
+      data.probes.forEach((p) => addProbe(item.querySelector(".probes-list"), p));
+    }
+
+    return item;
+  }
+
+  function addProbe(container, value) {
+    const row = document.createElement("div");
+    row.className = "probe-row";
+    row.innerHTML =
+      '<input type="text" class="probe-input" placeholder="Follow-up probe..." value="' + esc(value) + '">' +
+      '<button class="btn-icon btn-icon-danger" title="Remove">&times;</button>';
+    row.querySelector(".btn-icon").addEventListener("click", () => row.remove());
+    container.appendChild(row);
+  }
+
+  function renumberQuestions() {
+    const items = $$("#b-questions-list .builder-item");
+    items.forEach((item, i) => {
+      item.querySelector(".item-label").textContent = "Question " + (i + 1);
+    });
+  }
+
+  // ── Branching management ───────────────────────────────────
+  function addBranch(data) {
+    branchCounter++;
+    const list = $("#b-branching-list");
+
+    const item = document.createElement("div");
+    item.className = "builder-item";
+    item.innerHTML =
+      '<div class="builder-item-header">' +
+        '<span class="item-label">Rule ' + branchCounter + '</span>' +
+        '<div class="item-actions">' +
+          '<button class="btn-icon btn-icon-danger" title="Remove" data-action="remove">&times;</button>' +
+        '</div>' +
+      '</div>' +
+      '<div class="field-row">' +
+        '<div class="field"><label>After Question ID</label><input type="text" class="br-after" placeholder="q2" value="' + esc(data?.trigger?.after || "") + '"></div>' +
+        '<div class="field"><label>If Themes (comma-separated)</label><input type="text" class="br-themes" placeholder="conflict, dysfunction" value="' + esc(data?.trigger?.if_themes?.join(", ") || "") + '"></div>' +
+      '</div>' +
+      '<div class="field-row">' +
+        '<div class="field"><label>Follow-up ID</label><input type="text" class="br-fu-id" placeholder="q2a" value="' + esc(data?.follow_up?.id || "") + '"></div>' +
+        '<div class="field"><label>Follow-up Topic</label><input type="text" class="br-fu-topic" placeholder="Conflict Resolution" value="' + esc(data?.follow_up?.topic || "") + '"></div>' +
+      '</div>' +
+      '<div class="field"><label>Follow-up Question</label><textarea class="br-fu-text" rows="2" placeholder="Follow-up question text...">' + esc(data?.follow_up?.text || "") + '</textarea></div>' +
+      '<div class="field"><label>Follow-up Probes (comma-separated)</label><input type="text" class="br-fu-probes" placeholder="Who steps in?, How do you feel?" value="' + esc(data?.follow_up?.probes?.join(", ") || "") + '"></div>';
+
+    list.appendChild(item);
+    item.querySelector('[data-action="remove"]').addEventListener("click", () => item.remove());
+  }
+
+  // ── Theme management ───────────────────────────────────────
+  function addTheme(data) {
+    themeCounter++;
+    const list = $("#b-themes-list");
+
+    const item = document.createElement("div");
+    item.className = "builder-item";
+    item.innerHTML =
+      '<div class="builder-item-header">' +
+        '<span class="item-label">Theme ' + themeCounter + '</span>' +
+        '<div class="item-actions">' +
+          '<button class="btn-icon btn-icon-danger" title="Remove" data-action="remove">&times;</button>' +
+        '</div>' +
+      '</div>' +
+      '<div class="field-row">' +
+        '<div class="field"><label>Code</label><input type="text" class="th-code" placeholder="autonomy" value="' + esc(data?.code || "") + '"></div>' +
+        '<div class="field"><label>Label</label><input type="text" class="th-label" placeholder="Autonomy & Ownership" value="' + esc(data?.label || "") + '"></div>' +
+      '</div>' +
+      '<div class="field"><label>Description</label><input type="text" class="th-desc" placeholder="What this theme captures..." value="' + esc(data?.description || "") + '"></div>';
+
+    list.appendChild(item);
+    item.querySelector('[data-action="remove"]').addEventListener("click", () => item.remove());
+  }
+
+  // ── Build JSON from form ───────────────────────────────────
+  function buildConfig() {
+    // Questions
+    const questions = [];
+    $$("#b-questions-list .builder-item").forEach((item) => {
+      const probes = [];
+      item.querySelectorAll(".probe-input").forEach((inp) => {
+        const v = inp.value.trim();
+        if (v) probes.push(v);
+      });
+      questions.push({
+        id: item.querySelector(".q-id").value.trim() || "q" + (questions.length + 1),
+        topic: item.querySelector(".q-topic").value.trim(),
+        text: item.querySelector(".q-text").value.trim(),
+        probes: probes.length > 0 ? probes : undefined,
+      });
+    });
+
+    // Branching
+    const branching = [];
+    $$("#b-branching-list .builder-item").forEach((item) => {
+      const themesStr = item.querySelector(".br-themes").value.trim();
+      const probesStr = item.querySelector(".br-fu-probes").value.trim();
+      branching.push({
+        trigger: {
+          after: item.querySelector(".br-after").value.trim(),
+          if_themes: themesStr ? themesStr.split(",").map((s) => s.trim()).filter(Boolean) : [],
+        },
+        follow_up: {
+          id: item.querySelector(".br-fu-id").value.trim(),
+          topic: item.querySelector(".br-fu-topic").value.trim(),
+          text: item.querySelector(".br-fu-text").value.trim(),
+          probes: probesStr ? probesStr.split(",").map((s) => s.trim()).filter(Boolean) : undefined,
+        },
+      });
+    });
+
+    // Themes
+    const themes = [];
+    $$("#b-themes-list .builder-item").forEach((item) => {
+      themes.push({
+        code: item.querySelector(".th-code").value.trim(),
+        label: item.querySelector(".th-label").value.trim(),
+        description: item.querySelector(".th-desc").value.trim(),
+      });
+    });
+
+    const config = {
+      id: $("#b-id").value.trim() || "untitled-study",
+      title: $("#b-title").value.trim(),
+      version: $("#b-version").value.trim() || "1.0",
+      description: $("#b-description").value.trim() || undefined,
+      irb: {
+        disclosure: $("#b-irb-disclosure").value.trim(),
+        principal_investigator: $("#b-irb-pi").value.trim() || undefined,
+        protocol_number: $("#b-irb-protocol").value.trim() || undefined,
+        contact_email: $("#b-irb-email").value.trim() || undefined,
+        institution: $("#b-irb-institution").value.trim() || undefined,
+      },
+      persona: {
+        name: $("#b-persona-name").value.trim() || "Synap",
+        system_prompt: $("#b-persona-prompt").value.trim(),
+        greeting: $("#b-persona-greeting").value.trim(),
+      },
+      guide: {
+        questions: questions,
+        branching: branching.length > 0 ? branching : undefined,
+        closing: $("#b-closing").value.trim(),
+      },
+      coding_schema: {
+        themes: themes,
+      },
+      settings: {
+        ai_provider: $("#b-provider").value,
+        ai_model: $("#b-model").value.trim() || undefined,
+        temperature: parseFloat($("#b-temperature").value) || 0.7,
+        max_tokens: parseInt($("#b-max-tokens").value) || 1024,
+        max_turns: parseInt($("#b-max-turns").value) || 30,
+        supabase_url: $("#b-supabase-url").value.trim() || undefined,
+        supabase_anon_key: $("#b-supabase-key").value.trim() || undefined,
+        endpoint: null,
+      },
+    };
+
+    // Clean undefined values
+    return JSON.parse(JSON.stringify(config));
+  }
+
+  // ── Load config file ───────────────────────────────────────
+  function loadConfigFile(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = function (ev) {
+      try {
+        const config = JSON.parse(ev.target.result);
+        populateForm(config);
+      } catch (err) {
+        alert("Invalid JSON file: " + err.message);
+      }
+    };
+    reader.readAsText(file);
+    // Reset so same file can be loaded again
+    e.target.value = "";
+  }
+
+  function populateForm(config) {
+    // Study info
+    $("#b-id").value = config.id || "";
+    $("#b-title").value = config.title || "";
+    $("#b-version").value = config.version || "1.0";
+    $("#b-description").value = config.description || "";
+
+    // IRB
+    $("#b-irb-disclosure").value = config.irb?.disclosure || "";
+    $("#b-irb-pi").value = config.irb?.principal_investigator || "";
+    $("#b-irb-protocol").value = config.irb?.protocol_number || "";
+    $("#b-irb-email").value = config.irb?.contact_email || "";
+    $("#b-irb-institution").value = config.irb?.institution || "";
+
+    // Persona
+    $("#b-persona-name").value = config.persona?.name || "Synap";
+    $("#b-persona-prompt").value = config.persona?.system_prompt || "";
+    $("#b-persona-greeting").value = config.persona?.greeting || "";
+
+    // Clear and rebuild questions
+    $("#b-questions-list").innerHTML = "";
+    questionCounter = 0;
+    if (config.guide?.questions) {
+      config.guide.questions.forEach((q) => addQuestion(q));
+    }
+
+    // Closing
+    $("#b-closing").value = config.guide?.closing || "";
+
+    // Clear and rebuild branching
+    $("#b-branching-list").innerHTML = "";
+    branchCounter = 0;
+    if (config.guide?.branching) {
+      config.guide.branching.forEach((b) => addBranch(b));
+    }
+
+    // Clear and rebuild themes
+    $("#b-themes-list").innerHTML = "";
+    themeCounter = 0;
+    if (config.coding_schema?.themes) {
+      config.coding_schema.themes.forEach((t) => addTheme(t));
+    }
+
+    // Settings
+    $("#b-provider").value = config.settings?.ai_provider || "mock";
+    $("#b-model").value = config.settings?.ai_model || "";
+    $("#b-temperature").value = config.settings?.temperature ?? 0.7;
+    $("#b-max-tokens").value = config.settings?.max_tokens || 1024;
+    $("#b-max-turns").value = config.settings?.max_turns || 30;
+    $("#b-supabase-url").value = config.settings?.supabase_url || "";
+    $("#b-supabase-key").value = config.settings?.supabase_anon_key || "";
+  }
+
+  // ── Preview / Download ─────────────────────────────────────
+  function togglePreview() {
+    const panel = $("#builder-preview-panel");
+    if (panel.hidden) {
+      const config = buildConfig();
+      $("#builder-json-output").textContent = JSON.stringify(config, null, 2);
+      panel.hidden = false;
+    } else {
+      panel.hidden = true;
+    }
+  }
+
+  function downloadConfig() {
+    const config = buildConfig();
+    const filename = (config.id || "config") + ".json";
+    const content = JSON.stringify(config, null, 2);
+    download(content, filename, "application/json");
+  }
+
   // ── Start ──────────────────────────────────────────────────
-  document.addEventListener("DOMContentLoaded", init);
+  document.addEventListener("DOMContentLoaded", () => {
+    init();
+    initBuilder();
+  });
 })();
