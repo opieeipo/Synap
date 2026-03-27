@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Synap</title>
+  <link rel="stylesheet" href="static/css/synap.css">
+</head>
+<body>
+
+  <!-- Consent Modal -->
+  <div id="consent-overlay" class="overlay">
+    <div class="consent-modal">
+      <div class="consent-header">
+        <h1>Synap</h1>
+        <p class="consent-subtitle" id="consent-title"></p>
+      </div>
+      <div class="consent-body">
+        <div class="consent-disclosure" id="consent-text"></div>
+        <div class="consent-meta" id="consent-meta"></div>
+      </div>
+      <div class="consent-actions">
+        <button id="consent-decline" class="btn btn-secondary">Decline</button>
+        <button id="consent-accept" class="btn btn-primary">I Agree &mdash; Begin Interview</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Declined screen -->
+  <div id="declined-screen" class="overlay" hidden>
+    <div class="declined-message">
+      <h2>Thank you</h2>
+      <p>You have declined to participate. You may close this window.</p>
+    </div>
+  </div>
+
+  <!-- Chat UI -->
+  <div id="chat-container" hidden>
+    <header class="chat-header">
+      <h1 class="chat-title">Synap</h1>
+      <span class="chat-topic" id="chat-topic"></span>
+      <button id="end-interview" class="btn btn-small btn-secondary">End Interview</button>
+    </header>
+
+    <main class="chat-messages" id="chat-messages">
+      <!-- Messages render here -->
+    </main>
+
+    <footer class="chat-input-bar">
+      <div class="input-wrapper">
+        <textarea
+          id="chat-input"
+          placeholder="Type your response..."
+          rows="1"
+          autocomplete="off"
+        ></textarea>
+        <button id="send-btn" class="btn btn-send" disabled>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="22" y1="2" x2="11" y2="13"></line>
+            <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+          </svg>
+        </button>
+      </div>
+      <div class="input-hint" id="input-hint"></div>
+    </footer>
+  </div>
+
+  <!-- Completion screen -->
+  <div id="complete-screen" class="overlay" hidden>
+    <div class="complete-message">
+      <h2>Interview Complete</h2>
+      <p>Thank you for your time and thoughtful responses.</p>
+      <p class="complete-sub">You may close this window.</p>
+    </div>
+  </div>
+
+  <script src="static/js/synap.js"></script>
+</body>
+</html>
