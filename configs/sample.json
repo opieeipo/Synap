@@ -2,12 +2,14 @@
   "id": "employee-experience-2026",
   "title": "Employee Experience Interview",
   "version": "1.0",
+  "description": "Semi-structured interview exploring employee experience across role satisfaction, team dynamics, growth opportunities, and tooling.",
 
   "irb": {
     "disclosure": "This interview is being conducted by an AI research assistant as part of a study on employee experience. Your responses will be recorded, de-identified, and analyzed for research purposes. You may stop the interview at any time by closing this window. Your participation is voluntary and will not affect your employment in any way.",
     "principal_investigator": "Dr. Example Researcher",
     "protocol_number": "IRB-2026-0042",
-    "contact_email": "research@example.org"
+    "contact_email": "research@example.org",
+    "institution": "Example University"
   },
 
   "persona": {
@@ -106,13 +108,13 @@
   },
 
   "settings": {
-    "max_turns": 30,
     "ai_provider": "mock",
-    "ai_model": null,
+    "ai_model": "claude-sonnet-4-20250514",
     "temperature": 0.7,
     "max_tokens": 1024,
-    "supabase_url": null,
-    "supabase_anon_key": null,
+    "max_turns": 30,
+    "supabase_url": "https://your-project.supabase.co",
+    "supabase_anon_key": "your-anon-key",
     "endpoint": null
   }
 }
