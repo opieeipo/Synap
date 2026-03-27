@@ -122,22 +122,45 @@ python3 -m http.server 8000
 
 ### Live Mode (Supabase)
 
-1. Copy `.env.example` to `.env` and fill in your Supabase and AI provider credentials
-2. Run the database migration:
+**Prerequisites:**
+- [Supabase CLI](https://supabase.com/docs/guides/cli) installed
+- A Supabase project created via the [Supabase Dashboard](https://supabase.com/dashboard)
+- Your project ref (the ID from your dashboard URL, e.g., `https://supabase.com/dashboard/project/abcdefghijklmnop`)
+
+**Setup:**
+
+1. Copy `.env.example` to `.env` and fill in your Supabase and AI provider credentials:
+   ```bash
+   cp .env.example .env
+   ```
+
+2. Initialize and link Supabase to your project:
+   ```bash
+   supabase init        # Creates config.toml (detects existing supabase/ directory)
+   supabase link --project-ref your-project-ref
+   ```
+
+3. Run the database migration to create tables:
    ```bash
    supabase db push
    ```
-3. Deploy the Edge Functions:
+
+4. Set secrets so Edge Functions can access your API keys:
+   ```bash
+   supabase secrets set --env-file .env
+   ```
+
+5. Deploy the Edge Functions:
    ```bash
    supabase functions deploy session-start
    supabase functions deploy chat
    supabase functions deploy session-end
    ```
-4. Set secrets on Supabase:
-   ```bash
-   supabase secrets set --env-file .env
-   ```
-5. Update your interview config with `supabase_url`, `supabase_anon_key`, and your chosen `ai_provider`
+
+6. Update your interview config (`configs/sample.json` or your own) with:
+   - `supabase_url` — your project URL (e.g., `https://abcdefghijklmnop.supabase.co`)
+   - `supabase_anon_key` — your project's anon/public key (found in Dashboard > Settings > API)
+   - `ai_provider` — set to `"claude"`, `"openai"`, `"azure"`, or `"gemini"`
 
 ## Build Phases
 
