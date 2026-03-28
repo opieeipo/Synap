@@ -67,6 +67,7 @@
         <li><a href="#" class="nav-link" data-view="themes">Themes</a></li>
         <li><a href="#" class="nav-link" data-view="export">Export</a></li>
         <li><a href="#" class="nav-link" data-view="builder">Config Builder</a></li>
+        <li id="nav-users" hidden><a href="#" class="nav-link" data-view="users">Users</a></li>
       </ul>
       <div class="sidebar-footer">
         <div class="sidebar-user" id="sidebar-user"></div>
@@ -426,6 +427,91 @@
               <button id="builder-close-preview" class="btn btn-small btn-secondary">Close</button>
             </div>
             <pre id="builder-json-output" class="preview-json"></pre>
+          </div>
+        </div>
+      </div>
+
+      <!-- Users View (admin only) -->
+      <div id="view-users" class="view" hidden>
+        <div class="view-header">
+          <h1>Users</h1>
+          <div class="view-controls">
+            <button id="invite-user-btn" class="btn btn-small btn-primary">Invite Researcher</button>
+            <button id="refresh-users" class="btn btn-small btn-secondary">Refresh</button>
+          </div>
+        </div>
+
+        <!-- Invite modal -->
+        <div id="invite-modal" class="inline-modal" hidden>
+          <div class="inline-modal-content">
+            <h3>Invite Researcher</h3>
+            <div class="field">
+              <label for="invite-email">Email</label>
+              <input type="email" id="invite-email" placeholder="researcher@example.org">
+            </div>
+            <div class="field">
+              <label for="invite-name">Display Name</label>
+              <input type="text" id="invite-name" placeholder="Dr. Jane Smith">
+            </div>
+            <div class="field">
+              <label for="invite-role">Role</label>
+              <select id="invite-role" class="select">
+                <option value="researcher">Researcher</option>
+                <option value="admin">Admin</option>
+              </select>
+            </div>
+            <div id="invite-error" class="connect-error" hidden></div>
+            <div id="invite-success" class="invite-success" hidden></div>
+            <div class="inline-modal-actions">
+              <button id="invite-cancel" class="btn btn-small btn-secondary">Cancel</button>
+              <button id="invite-send" class="btn btn-small btn-primary">Send Invite</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Researchers table -->
+        <div class="table-wrap">
+          <table class="data-table" id="users-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Email</th>
+                <th>Role</th>
+                <th>Studies</th>
+                <th>Joined</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="users-body"></tbody>
+          </table>
+          <div id="users-empty" class="empty-state" hidden>No researchers found.</div>
+        </div>
+
+        <!-- Study Access Panel (slides in when managing a user) -->
+        <div id="access-panel" class="access-panel" hidden>
+          <div class="access-panel-header">
+            <h3>Study Access: <span id="access-user-name"></span></h3>
+            <button id="access-close" class="btn btn-small btn-secondary">Close</button>
+          </div>
+          <div id="access-list" class="access-list"></div>
+          <div class="access-add">
+            <div class="field-row">
+              <div class="field">
+                <label for="access-config-id">Study ID</label>
+                <input type="text" id="access-config-id" placeholder="employee-experience-2026">
+              </div>
+              <div class="field">
+                <label for="access-level">Access Level</label>
+                <select id="access-level" class="select">
+                  <option value="viewer">Viewer</option>
+                  <option value="editor">Editor</option>
+                  <option value="owner">Owner</option>
+                </select>
+              </div>
+              <div class="field" style="align-self: flex-end;">
+                <button id="access-grant" class="btn btn-small btn-primary">Grant</button>
+              </div>
+            </div>
           </div>
         </div>
       </div>

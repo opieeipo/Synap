@@ -111,6 +111,14 @@
     // Refresh buttons
     $("#refresh-sessions").addEventListener("click", loadSessions);
     $("#refresh-themes").addEventListener("click", loadThemes);
+    $("#refresh-users").addEventListener("click", loadUsers);
+
+    // User management
+    $("#invite-user-btn").addEventListener("click", () => { $("#invite-modal").hidden = false; });
+    $("#invite-cancel").addEventListener("click", () => { $("#invite-modal").hidden = true; $("#invite-error").hidden = true; $("#invite-success").hidden = true; });
+    $("#invite-send").addEventListener("click", onInviteUser);
+    $("#access-close").addEventListener("click", () => { $("#access-panel").hidden = true; });
+    $("#access-grant").addEventListener("click", onGrantAccess);
 
     // Filters
     $("#filter-status").addEventListener("change", loadSessions);
@@ -295,6 +303,12 @@
     studySwitcher.value = selectedStudy;
 
     sidebarUser.textContent = currentUser.display_name || currentUser.email;
+
+    // Show Users nav for admins
+    if (currentUser.role === "admin") {
+      $("#nav-users").hidden = false;
+    }
+
     loadSessions();
   }
 
@@ -322,6 +336,7 @@
 
     if (view === "sessions") loadSessions();
     if (view === "themes") loadThemes();
+    if (view === "users") loadUsers();
   }
 
   function refreshCurrentView() {
@@ -597,6 +612,205 @@
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+  }
+
+  // ── User Management ─────────────────────────────────────────
+  let managingUserId = null;
+
+  async function loadUsers() {
+    const body = $("#users-body");
+    const empty = $("#users-empty");
+    body.innerHTML = "";
+    empty.hidden = true;
+
+    try {
+      // Admins can read all researchers via RLS policy
+      const { data: researchers } = await query("researchers", {
+        select: "id,email,display_name,role,created_at",
+        order: "created_at.desc",
+      });
+
+      if (!researchers || researchers.length === 0) {
+        empty.hidden = false;
+        return;
+      }
+
+      // Load all study_access to count per researcher
+      const { data: allAccess } = await query("study_access", { select: "researcher_id,config_id,access_level" });
+      const accessMap = {};
+      (allAccess || []).forEach((a) => {
+        if (!accessMap[a.researcher_id]) accessMap[a.researcher_id] = [];
+        accessMap[a.researcher_id].push(a);
+      });
+
+      researchers.forEach((r) => {
+        const studyCount = (accessMap[r.id] || []).length;
+        const tr = document.createElement("tr");
+        tr.innerHTML =
+          "<td>" + esc(r.display_name || "—") + "</td>" +
+          "<td><code>" + esc(r.email) + "</code></td>" +
+          '<td><span class="badge badge-' + (r.role === "admin" ? "active" : "completed") + '">' + r.role + "</span></td>" +
+          "<td>" + studyCount + " " + (studyCount === 1 ? "study" : "studies") + "</td>" +
+          "<td>" + formatDate(r.created_at) + "</td>" +
+          '<td><div style="display:flex;gap:4px;"><button class="btn btn-small btn-secondary manage-access-btn">Access</button><button class="btn btn-small btn-secondary toggle-role-btn">' + (r.role === "admin" ? "Make Researcher" : "Make Admin") + "</button></div></td>";
+
+        tr.querySelector(".manage-access-btn").addEventListener("click", () => openAccessPanel(r, accessMap[r.id] || []));
+        tr.querySelector(".toggle-role-btn").addEventListener("click", () => toggleRole(r));
+        body.appendChild(tr);
+      });
+    } catch (err) {
+      empty.textContent = "Error loading users: " + err.message;
+      empty.hidden = false;
+    }
+  }
+
+  async function onInviteUser() {
+    const email = $("#invite-email").value.trim();
+    const displayName = $("#invite-name").value.trim();
+    const role = $("#invite-role").value;
+    const errorEl = $("#invite-error");
+    const successEl = $("#invite-success");
+    errorEl.hidden = true;
+    successEl.hidden = true;
+
+    if (!email) { errorEl.textContent = "Email is required"; errorEl.hidden = false; return; }
+
+    try {
+      const resp = await fetch(sbUrl + "/functions/v1/invite-user", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          apikey: sbAnonKey,
+          Authorization: "Bearer " + authToken,
+        },
+        body: JSON.stringify({ email, display_name: displayName, role }),
+      });
+
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || "Invite failed");
+
+      successEl.textContent = data.message || "Invite sent!";
+      successEl.hidden = false;
+      $("#invite-email").value = "";
+      $("#invite-name").value = "";
+
+      // Refresh the list
+      loadUsers();
+    } catch (err) {
+      errorEl.textContent = err.message;
+      errorEl.hidden = false;
+    }
+  }
+
+  async function toggleRole(researcher) {
+    const newRole = researcher.role === "admin" ? "researcher" : "admin";
+    try {
+      // Use PostgREST PATCH
+      const resp = await fetch(sbUrl + "/rest/v1/researchers?id=eq." + researcher.id, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          apikey: sbAnonKey,
+          Authorization: "Bearer " + authToken,
+          Prefer: "return=minimal",
+        },
+        body: JSON.stringify({ role: newRole }),
+      });
+      if (!resp.ok) throw new Error("Failed to update role");
+      loadUsers();
+    } catch (err) {
+      alert("Error: " + err.message);
+    }
+  }
+
+  function openAccessPanel(researcher, currentAccess) {
+    managingUserId = researcher.id;
+    const panel = $("#access-panel");
+    panel.hidden = false;
+    $("#access-user-name").textContent = researcher.display_name || researcher.email;
+
+    const list = $("#access-list");
+    list.innerHTML = "";
+
+    if (currentAccess.length === 0) {
+      list.innerHTML = '<div class="empty-state" style="padding:12px;">No study access granted.</div>';
+    } else {
+      currentAccess.forEach((a) => {
+        const row = document.createElement("div");
+        row.className = "access-row";
+        row.innerHTML =
+          '<div class="access-row-info"><span class="access-row-study">' + esc(a.config_id) + '</span><span class="access-row-level">' + a.access_level + '</span></div>' +
+          '<button class="btn btn-small btn-secondary revoke-btn">Revoke</button>';
+        row.querySelector(".revoke-btn").addEventListener("click", () => revokeAccess(a.researcher_id, a.config_id));
+        list.appendChild(row);
+      });
+    }
+  }
+
+  async function onGrantAccess() {
+    if (!managingUserId) return;
+    const configId = $("#access-config-id").value.trim();
+    const level = $("#access-level").value;
+    if (!configId) { alert("Study ID is required"); return; }
+
+    try {
+      const resp = await fetch(sbUrl + "/rest/v1/study_access", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          apikey: sbAnonKey,
+          Authorization: "Bearer " + authToken,
+          Prefer: "return=minimal",
+        },
+        body: JSON.stringify({ researcher_id: managingUserId, config_id: configId, access_level: level }),
+      });
+      if (!resp.ok) {
+        const err = await resp.text();
+        throw new Error(err);
+      }
+      $("#access-config-id").value = "";
+      // Reload both users and access panel
+      loadUsers();
+      // Re-fetch access for this user
+      const { data: updatedAccess } = await query("study_access", {
+        select: "researcher_id,config_id,access_level",
+        researcher_id: "eq." + managingUserId,
+      });
+      openAccessPanel(
+        { id: managingUserId, display_name: $("#access-user-name").textContent },
+        updatedAccess || []
+      );
+    } catch (err) {
+      alert("Error granting access: " + err.message);
+    }
+  }
+
+  async function revokeAccess(researcherId, configId) {
+    try {
+      const resp = await fetch(
+        sbUrl + "/rest/v1/study_access?researcher_id=eq." + researcherId + "&config_id=eq." + encodeURIComponent(configId),
+        {
+          method: "DELETE",
+          headers: {
+            apikey: sbAnonKey,
+            Authorization: "Bearer " + authToken,
+          },
+        }
+      );
+      if (!resp.ok) throw new Error("Failed to revoke access");
+      loadUsers();
+      // Refresh access panel
+      const { data: updatedAccess } = await query("study_access", {
+        select: "researcher_id,config_id,access_level",
+        researcher_id: "eq." + researcherId,
+      });
+      openAccessPanel(
+        { id: researcherId, display_name: $("#access-user-name").textContent },
+        updatedAccess || []
+      );
+    } catch (err) {
+      alert("Error: " + err.message);
+    }
   }
 
   // ── Config Builder ─────────────────────────────────────────

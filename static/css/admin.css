@@ -688,6 +688,105 @@ html, body {
   font-size: 13px;
 }
 
+/* === Inline Modal === */
+.inline-modal {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  margin-bottom: 16px;
+}
+
+.inline-modal[hidden] {
+  display: none;
+}
+
+.inline-modal-content h3 {
+  font-size: 15px;
+  font-weight: 600;
+  margin-bottom: 14px;
+}
+
+.inline-modal-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 14px;
+}
+
+.invite-success {
+  margin-top: 10px;
+  padding: 10px 12px;
+  background: var(--success-light);
+  color: var(--success);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+}
+
+/* === Access Panel === */
+.access-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  margin-top: 16px;
+}
+
+.access-panel[hidden] {
+  display: none;
+}
+
+.access-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.access-panel-header h3 {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.access-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.access-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--bg);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+}
+
+.access-row-info {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.access-row-study {
+  font-weight: 600;
+}
+
+.access-row-level {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.access-add {
+  border-top: 1px solid var(--border);
+  padding-top: 14px;
+}
+
 /* === Config Builder === */
 .builder-layout {
   display: flex;
