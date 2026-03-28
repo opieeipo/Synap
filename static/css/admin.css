@@ -120,6 +120,159 @@ html, body {
   font-size: 13px;
 }
 
+/* Login divider */
+.login-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 20px 0;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.login-divider::before,
+.login-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.btn-full {
+  width: 100%;
+  justify-content: center;
+}
+
+/* Study Picker */
+.study-picker-modal {
+  max-width: 520px;
+}
+
+.picker-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.picker-header h1 {
+  font-size: 20px;
+}
+
+.picker-user {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.picker-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.picker-study {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.picker-study:hover {
+  border-color: var(--primary);
+  background: var(--primary-light);
+}
+
+.picker-study-name {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.picker-study-meta {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.picker-study-access {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.picker-footer {
+  margin-top: 16px;
+  text-align: center;
+}
+
+/* Sidebar study switcher */
+.sidebar-study {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.select-full {
+  width: 100%;
+}
+
+.sidebar-user {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Participant profile in transcript */
+.transcript-profile {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 20px;
+  margin-bottom: 16px;
+}
+
+.transcript-profile[hidden] {
+  display: none;
+}
+
+.transcript-profile h3 {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+
+.profile-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 8px;
+}
+
+.profile-item {
+  font-size: 13px;
+}
+
+.profile-item-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.profile-item-value {
+  font-weight: 500;
+}
+
 /* === Buttons === */
 .btn {
   font-family: var(--font);

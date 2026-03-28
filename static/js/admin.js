@@ -1,41 +1,92 @@
 /**
  * Synap Admin — Researcher Dashboard
- * Queries Supabase REST API (PostgREST) directly from the browser.
+ * Auth via Supabase Auth (public) or MSAL/Okta (corporate).
+ * Study-scoped queries via RLS.
  */
 
 (function () {
   "use strict";
 
   // ── State ──────────────────────────────────────────────────
+  let adminConfig = null;     // from admin-config.json
   let sbUrl = "";
-  let sbKey = "";
+  let sbAnonKey = "";
+  let authToken = "";         // JWT from Supabase Auth
+  let currentUser = null;     // { id, email, display_name, role }
+  let accessibleStudies = []; // [{ config_id, access_level }]
+  let selectedStudy = "";     // config_id or "" for all
   let currentView = "sessions";
 
   // ── DOM refs ───────────────────────────────────────────────
   const $ = (sel) => document.querySelector(sel);
   const $$ = (sel) => document.querySelectorAll(sel);
 
-  const connectScreen = $("#connect-screen");
-  const connectForm = $("#connect-form");
-  const connectError = $("#connect-error");
-  const sbUrlInput = $("#sb-url");
-  const sbKeyInput = $("#sb-key");
+  const loginScreen = $("#login-screen");
+  const loginForm = $("#login-form");
+  const loginError = $("#login-error");
+  const loginEmail = $("#login-email");
+  const loginPassword = $("#login-password");
+  const ssoSection = $("#sso-section");
+  const ssoBtn = $("#sso-btn");
+  const studyPicker = $("#study-picker");
+  const pickerStudies = $("#picker-studies");
+  const pickerEmpty = $("#picker-empty");
+  const pickerUserName = $("#picker-user-name");
+  const pickerLogout = $("#picker-logout");
+  const pickerAllBtn = $("#picker-all-studies");
   const dashboard = $("#dashboard");
-  const disconnectBtn = $("#disconnect-btn");
+  const studySwitcher = $("#study-switcher");
+  const sidebarUser = $("#sidebar-user");
+  const logoutBtn = $("#logout-btn");
 
   // ── Boot ───────────────────────────────────────────────────
-  function init() {
-    // Check for saved connection
-    const saved = sessionStorage.getItem("synap_admin");
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      sbUrl = parsed.url;
-      sbKey = parsed.key;
-      showDashboard();
+  async function init() {
+    // Load admin config
+    try {
+      const resp = await fetch("admin-config.json");
+      if (resp.ok) {
+        adminConfig = await resp.json();
+        sbUrl = adminConfig.supabase_url || "";
+        sbAnonKey = adminConfig.supabase_anon_key || "";
+      }
+    } catch {
+      // No admin config — show login with URL fields? For now, fail gracefully.
     }
 
-    connectForm.addEventListener("submit", onConnect);
-    disconnectBtn.addEventListener("click", onDisconnect);
+    if (!sbUrl || !sbAnonKey) {
+      showError("admin-config.json is missing or incomplete. Set supabase_url and supabase_anon_key.");
+      return;
+    }
+
+    // Check for corporate SSO option
+    if (adminConfig?.corporate?.enabled) {
+      ssoSection.hidden = false;
+      ssoBtn.addEventListener("click", onSSOLogin);
+    }
+
+    // Check for existing session
+    const savedSession = localStorage.getItem("synap_admin_session");
+    if (savedSession) {
+      try {
+        const parsed = JSON.parse(savedSession);
+        // Refresh the token
+        const refreshResult = await refreshSession(parsed.refresh_token);
+        if (refreshResult) {
+          authToken = refreshResult.access_token;
+          currentUser = refreshResult.user;
+          await loadAccessAndShowPicker();
+          return;
+        }
+      } catch {
+        localStorage.removeItem("synap_admin_session");
+      }
+    }
+
+    // Wire up events
+    loginForm.addEventListener("submit", onLogin);
+    pickerLogout.addEventListener("click", onLogout);
+    pickerAllBtn.addEventListener("click", () => enterDashboard(""));
+    logoutBtn.addEventListener("click", onLogout);
 
     // Nav links
     $$(".nav-link").forEach((link) => {
@@ -43,6 +94,12 @@
         e.preventDefault();
         switchView(link.dataset.view);
       });
+    });
+
+    // Study switcher
+    studySwitcher.addEventListener("change", () => {
+      selectedStudy = studySwitcher.value;
+      refreshCurrentView();
     });
 
     // Back button in transcript
@@ -56,59 +113,188 @@
     $("#refresh-themes").addEventListener("click", loadThemes);
 
     // Filters
-    $("#filter-config").addEventListener("change", loadSessions);
     $("#filter-status").addEventListener("change", loadSessions);
-    $("#theme-config-filter").addEventListener("change", loadThemes);
 
     // Export buttons
     $$("[data-export]").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        exportData(btn.dataset.export, btn.dataset.format);
-      });
+      btn.addEventListener("click", () => exportData(btn.dataset.export, btn.dataset.format));
     });
+
+    // Builder
+    initBuilder();
   }
 
-  // ── Connection ─────────────────────────────────────────────
-  async function onConnect(e) {
+  // ── Auth: Supabase ─────────────────────────────────────────
+  async function onLogin(e) {
     e.preventDefault();
-    const url = sbUrlInput.value.trim().replace(/\/$/, "");
-    const key = sbKeyInput.value.trim();
+    loginError.hidden = true;
 
-    // Test connection
+    const email = loginEmail.value.trim();
+    const password = loginPassword.value;
+
     try {
-      connectError.hidden = true;
-      const resp = await fetch(url + "/rest/v1/sessions?select=id&limit=1", {
-        headers: {
-          apikey: key,
-          Authorization: "Bearer " + key,
-        },
+      const resp = await fetch(sbUrl + "/auth/v1/token?grant_type=password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", apikey: sbAnonKey },
+        body: JSON.stringify({ email, password }),
       });
-      if (!resp.ok) throw new Error("Connection failed: " + resp.status);
 
-      sbUrl = url;
-      sbKey = key;
-      sessionStorage.setItem("synap_admin", JSON.stringify({ url, key }));
-      showDashboard();
+      if (!resp.ok) {
+        const err = await resp.json();
+        throw new Error(err.error_description || err.msg || "Login failed");
+      }
+
+      const data = await resp.json();
+      authToken = data.access_token;
+      currentUser = {
+        id: data.user.id,
+        email: data.user.email,
+        display_name: data.user.user_metadata?.display_name || data.user.email,
+      };
+
+      // Save refresh token
+      localStorage.setItem("synap_admin_session", JSON.stringify({
+        refresh_token: data.refresh_token,
+      }));
+
+      await loadAccessAndShowPicker();
     } catch (err) {
-      connectError.textContent = err.message;
-      connectError.hidden = false;
+      loginError.textContent = err.message;
+      loginError.hidden = false;
     }
   }
 
-  function onDisconnect() {
-    sessionStorage.removeItem("synap_admin");
-    sbUrl = "";
-    sbKey = "";
-    dashboard.hidden = true;
-    connectScreen.hidden = false;
-    sbUrlInput.value = "";
-    sbKeyInput.value = "";
+  async function refreshSession(refreshToken) {
+    try {
+      const resp = await fetch(sbUrl + "/auth/v1/token?grant_type=refresh_token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", apikey: sbAnonKey },
+        body: JSON.stringify({ refresh_token: refreshToken }),
+      });
+      if (!resp.ok) return null;
+      const data = await resp.json();
+
+      localStorage.setItem("synap_admin_session", JSON.stringify({
+        refresh_token: data.refresh_token,
+      }));
+
+      return {
+        access_token: data.access_token,
+        user: {
+          id: data.user.id,
+          email: data.user.email,
+          display_name: data.user.user_metadata?.display_name || data.user.email,
+        },
+      };
+    } catch {
+      return null;
+    }
   }
 
-  function showDashboard() {
-    connectScreen.hidden = true;
+  // ── Auth: Corporate SSO ────────────────────────────────────
+  async function onSSOLogin() {
+    // TODO: Implement MSAL popup login, exchange token for Supabase session
+    // For now, show a message
+    loginError.textContent = "Corporate SSO is configured but not yet connected. Contact your admin.";
+    loginError.hidden = false;
+  }
+
+  function onLogout() {
+    localStorage.removeItem("synap_admin_session");
+    authToken = "";
+    currentUser = null;
+    accessibleStudies = [];
+    selectedStudy = "";
+    dashboard.hidden = true;
+    studyPicker.hidden = true;
+    loginScreen.hidden = false;
+    loginEmail.value = "";
+    loginPassword.value = "";
+  }
+
+  // ── Study Access ───────────────────────────────────────────
+  async function loadAccessAndShowPicker() {
+    // Load researcher profile
+    try {
+      const { data: researchers } = await query("researchers", { select: "role,display_name" });
+      if (researchers.length > 0) {
+        currentUser.role = researchers[0].role;
+        currentUser.display_name = researchers[0].display_name || currentUser.email;
+      }
+    } catch {
+      // Researcher table might not exist yet — continue
+    }
+
+    // Load accessible studies
+    try {
+      const { data: access } = await query("study_access", { select: "config_id,access_level" });
+      accessibleStudies = access || [];
+    } catch {
+      accessibleStudies = [];
+    }
+
+    // If admin, also get all unique config_ids
+    if (currentUser.role === "admin") {
+      try {
+        const { data: sessions } = await query("sessions", { select: "config_id" });
+        const allConfigs = [...new Set(sessions.map((s) => s.config_id))];
+        // Merge with existing access
+        for (const cid of allConfigs) {
+          if (!accessibleStudies.find((a) => a.config_id === cid)) {
+            accessibleStudies.push({ config_id: cid, access_level: "admin" });
+          }
+        }
+      } catch {
+        // Continue with whatever we have
+      }
+    }
+
+    showStudyPicker();
+  }
+
+  function showStudyPicker() {
+    loginScreen.hidden = true;
+    studyPicker.hidden = false;
+    pickerUserName.textContent = currentUser.display_name || currentUser.email;
+
+    pickerStudies.innerHTML = "";
+    pickerEmpty.hidden = true;
+
+    if (accessibleStudies.length === 0) {
+      pickerEmpty.hidden = false;
+      pickerAllBtn.hidden = true;
+      return;
+    }
+
+    pickerAllBtn.hidden = accessibleStudies.length <= 1;
+
+    accessibleStudies.forEach((study) => {
+      const div = document.createElement("div");
+      div.className = "picker-study";
+      div.innerHTML =
+        '<div><div class="picker-study-name">' + esc(study.config_id) + '</div></div>' +
+        '<div class="picker-study-access">' + esc(study.access_level) + '</div>';
+      div.addEventListener("click", () => enterDashboard(study.config_id));
+      pickerStudies.appendChild(div);
+    });
+  }
+
+  function enterDashboard(configId) {
+    selectedStudy = configId;
+    studyPicker.hidden = true;
     dashboard.hidden = false;
-    loadConfigFilters();
+
+    // Populate study switcher
+    studySwitcher.innerHTML = '<option value="">All My Studies</option>';
+    accessibleStudies.forEach((s) => {
+      const opt = document.createElement("option");
+      opt.value = s.config_id;
+      opt.textContent = s.config_id;
+      studySwitcher.appendChild(opt);
+    });
+    studySwitcher.value = selectedStudy;
+
+    sidebarUser.textContent = currentUser.display_name || currentUser.email;
     loadSessions();
   }
 
@@ -117,15 +303,14 @@
     const qs = new URLSearchParams(params || {});
     const resp = await fetch(sbUrl + "/rest/v1/" + table + "?" + qs.toString(), {
       headers: {
-        apikey: sbKey,
-        Authorization: "Bearer " + sbKey,
+        apikey: sbAnonKey,
+        Authorization: "Bearer " + authToken,
         Prefer: "count=exact",
       },
     });
     if (!resp.ok) throw new Error("Query failed: " + resp.status);
-    const count = resp.headers.get("content-range");
     const data = await resp.json();
-    return { data, count };
+    return { data };
   }
 
   // ── Navigation ─────────────────────────────────────────────
@@ -139,28 +324,9 @@
     if (view === "themes") loadThemes();
   }
 
-  // ── Config Filters ─────────────────────────────────────────
-  async function loadConfigFilters() {
-    try {
-      const { data } = await query("sessions", { select: "config_id", order: "config_id" });
-      const configs = [...new Set(data.map((s) => s.config_id))];
-
-      ["filter-config", "theme-config-filter", "export-config-filter"].forEach((id) => {
-        const sel = $("#" + id);
-        const existing = sel.value;
-        // Keep the "All" option, clear the rest
-        while (sel.options.length > 1) sel.remove(1);
-        configs.forEach((c) => {
-          const opt = document.createElement("option");
-          opt.value = c;
-          opt.textContent = c;
-          sel.appendChild(opt);
-        });
-        sel.value = existing || "";
-      });
-    } catch (err) {
-      console.error("[Admin] Failed to load config filters:", err);
-    }
+  function refreshCurrentView() {
+    if (currentView === "sessions") loadSessions();
+    if (currentView === "themes") loadThemes();
   }
 
   // ── Sessions View ──────────────────────────────────────────
@@ -172,14 +338,13 @@
 
     try {
       const params = {
-        select: "id,config_id,status,turn_count,started_at,ended_at",
+        select: "id,config_id,status,turn_count,started_at,ended_at,config_snapshot",
         order: "started_at.desc",
         limit: "100",
       };
 
-      const configFilter = $("#filter-config").value;
+      if (selectedStudy) params["config_id"] = "eq." + selectedStudy;
       const statusFilter = $("#filter-status").value;
-      if (configFilter) params["config_id"] = "eq." + configFilter;
       if (statusFilter) params["status"] = "eq." + statusFilter;
 
       const { data } = await query("sessions", params);
@@ -190,11 +355,15 @@
       }
 
       data.forEach((s) => {
+        // Extract participant info from config_snapshot if available
+        const snapshot = s.config_snapshot || {};
+        const participantInfo = getParticipantSummary(snapshot);
+
         const tr = document.createElement("tr");
         tr.innerHTML =
           "<td><code>" + truncate(s.id, 20) + "</code></td>" +
-          "<td>" + esc(s.config_id) + "</td>" +
           '<td><span class="badge badge-' + s.status + '">' + s.status + "</span></td>" +
+          "<td>" + esc(participantInfo) + "</td>" +
           "<td>" + s.turn_count + "</td>" +
           "<td>" + formatDate(s.started_at) + "</td>" +
           "<td>" + formatDuration(s.started_at, s.ended_at) + "</td>" +
@@ -212,6 +381,12 @@
     }
   }
 
+  function getParticipantSummary(snapshot) {
+    // Try to find participant_profile in the session
+    // This would be stored at session level, not config_snapshot
+    return "—";
+  }
+
   // ── Transcript View ────────────────────────────────────────
   async function openTranscript(sessionId, sessionMeta) {
     $("#view-sessions").hidden = true;
@@ -220,7 +395,6 @@
 
     $("#transcript-title").textContent = "Session: " + truncate(sessionId, 24);
 
-    // Meta
     const meta = $("#transcript-meta");
     meta.innerHTML =
       "<div><strong>Study:</strong> " + esc(sessionMeta.config_id) + "</div>" +
@@ -228,6 +402,21 @@
       "<div><strong>Turns:</strong> " + sessionMeta.turn_count + "</div>" +
       "<div><strong>Started:</strong> " + formatDate(sessionMeta.started_at) + "</div>" +
       "<div><strong>Duration:</strong> " + formatDuration(sessionMeta.started_at, sessionMeta.ended_at) + "</div>";
+
+    // Check for participant profile
+    const profilePanel = $("#transcript-profile");
+    const profileData = $("#transcript-profile-data");
+    profilePanel.hidden = true;
+
+    // Load full session to get participant_profile
+    try {
+      const { data: fullSessions } = await query("sessions", {
+        select: "participant_profile",
+        id: "eq." + sessionId,
+      });
+      // participant_profile is not in our current schema as a column but could be in metadata
+      // For now, check config_snapshot for any profile data
+    } catch { /* ignore */ }
 
     // Load messages
     const msgContainer = $("#transcript-messages");
@@ -271,12 +460,9 @@
       if (themes.length === 0) {
         tagsContainer.innerHTML = '<span class="empty-state">No themes detected.</span>';
       } else {
-        // Aggregate by theme
         const counts = {};
         themes.forEach((t) => {
-          if (!counts[t.theme_code]) {
-            counts[t.theme_code] = { label: t.theme_label || t.theme_code, count: 0 };
-          }
+          if (!counts[t.theme_code]) counts[t.theme_code] = { label: t.theme_label || t.theme_code, count: 0 };
           counts[t.theme_code].count++;
         });
 
@@ -304,55 +490,27 @@
     summary.innerHTML = "";
 
     try {
-      // Get all themes, optionally filtered by study
-      const params = {
-        select: "theme_code,theme_label,confidence,session_id",
-      };
+      const params = { select: "theme_code,theme_label,confidence,session_id" };
 
-      const configFilter = $("#theme-config-filter").value;
-      if (configFilter) {
-        // Need to join through sessions to filter by config_id
-        // PostgREST doesn't support joins directly, so we first get session IDs
-        const { data: sessions } = await query("sessions", {
-          select: "id",
-          config_id: "eq." + configFilter,
-        });
+      if (selectedStudy) {
+        const { data: sessions } = await query("sessions", { select: "id", config_id: "eq." + selectedStudy });
         const ids = sessions.map((s) => s.id);
-        if (ids.length === 0) {
-          empty.hidden = false;
-          return;
-        }
+        if (ids.length === 0) { empty.hidden = false; return; }
         params["session_id"] = "in.(" + ids.join(",") + ")";
       }
 
       const { data: themes } = await query("coded_themes", params);
 
-      if (themes.length === 0) {
-        empty.hidden = false;
-        return;
-      }
+      if (themes.length === 0) { empty.hidden = false; return; }
 
-      // Aggregate
       const agg = {};
       themes.forEach((t) => {
-        if (!agg[t.theme_code]) {
-          agg[t.theme_code] = {
-            label: t.theme_label || t.theme_code,
-            count: 0,
-            sessions: new Set(),
-            totalConf: 0,
-            confCount: 0,
-          };
-        }
+        if (!agg[t.theme_code]) agg[t.theme_code] = { label: t.theme_label || t.theme_code, count: 0, sessions: new Set(), totalConf: 0, confCount: 0 };
         agg[t.theme_code].count++;
         agg[t.theme_code].sessions.add(t.session_id);
-        if (t.confidence != null) {
-          agg[t.theme_code].totalConf += t.confidence;
-          agg[t.theme_code].confCount++;
-        }
+        if (t.confidence != null) { agg[t.theme_code].totalConf += t.confidence; agg[t.theme_code].confCount++; }
       });
 
-      // Summary stats
       const uniqueThemes = Object.keys(agg).length;
       const totalOccurrences = themes.length;
       const uniqueSessions = new Set(themes.map((t) => t.session_id)).size;
@@ -361,7 +519,6 @@
         '<div class="theme-stat"><div class="theme-stat-value">' + totalOccurrences + '</div><div class="theme-stat-label">Total Occurrences</div></div>' +
         '<div class="theme-stat"><div class="theme-stat-value">' + uniqueSessions + '</div><div class="theme-stat-label">Sessions</div></div>';
 
-      // Table rows
       Object.entries(agg)
         .sort((a, b) => b[1].count - a[1].count)
         .forEach(([code, info]) => {
@@ -387,45 +544,28 @@
     try {
       const params = { select: "*", order: "created_at.desc", limit: "10000" };
 
-      const configFilter = $("#export-config-filter").value;
-      if (configFilter) {
+      if (selectedStudy) {
         if (table === "sessions") {
-          params["config_id"] = "eq." + configFilter;
+          params["config_id"] = "eq." + selectedStudy;
         } else {
-          // Get session IDs for this config
-          const { data: sessions } = await query("sessions", {
-            select: "id",
-            config_id: "eq." + configFilter,
-          });
+          const { data: sessions } = await query("sessions", { select: "id", config_id: "eq." + selectedStudy });
           const ids = sessions.map((s) => s.id);
-          if (ids.length === 0) {
-            alert("No data found for this study.");
-            return;
-          }
+          if (ids.length === 0) { alert("No data found for this study."); return; }
           params["session_id"] = "in.(" + ids.join(",") + ")";
         }
       }
 
       const { data } = await query(table, params);
-
-      if (data.length === 0) {
-        alert("No data to export.");
-        return;
-      }
+      if (data.length === 0) { alert("No data to export."); return; }
 
       let content, mime, ext;
-
       if (format === "json") {
-        content = JSON.stringify(data, null, 2);
-        mime = "application/json";
-        ext = "json";
+        content = JSON.stringify(data, null, 2); mime = "application/json"; ext = "json";
       } else {
-        content = toCSV(data);
-        mime = "text/csv";
-        ext = "csv";
+        content = toCSV(data); mime = "text/csv"; ext = "csv";
       }
 
-      const filename = "synap_" + table + (configFilter ? "_" + configFilter : "") + "." + ext;
+      const filename = "synap_" + table + (selectedStudy ? "_" + selectedStudy : "") + "." + ext;
       download(content, filename, mime);
     } catch (err) {
       alert("Export failed: " + err.message);
@@ -459,7 +599,219 @@
     URL.revokeObjectURL(url);
   }
 
+  // ── Config Builder ─────────────────────────────────────────
+  let questionCounter = 0;
+  let branchCounter = 0;
+  let themeCounter = 0;
+
+  function initBuilder() {
+    $("#b-add-question").addEventListener("click", () => addQuestion());
+    $("#b-add-branch").addEventListener("click", () => addBranch());
+    $("#b-add-theme").addEventListener("click", () => addTheme());
+    $("#builder-download").addEventListener("click", downloadConfig);
+    $("#builder-preview").addEventListener("click", togglePreview);
+    $("#builder-close-preview").addEventListener("click", togglePreview);
+    $("#builder-load").addEventListener("change", loadConfigFile);
+  }
+
+  function addQuestion(data) {
+    questionCounter++;
+    const idx = questionCounter;
+    const list = $("#b-questions-list");
+
+    const item = document.createElement("div");
+    item.className = "builder-item";
+    item.dataset.qIdx = idx;
+    item.innerHTML =
+      '<div class="builder-item-header"><span class="item-label">Question ' + idx + '</span><div class="item-actions"><button class="btn-icon" title="Move up" data-action="move-up">&uarr;</button><button class="btn-icon" title="Move down" data-action="move-down">&darr;</button><button class="btn-icon btn-icon-danger" title="Remove" data-action="remove">&times;</button></div></div>' +
+      '<div class="field-row"><div class="field"><label>ID</label><input type="text" class="q-id" placeholder="q' + idx + '" value="' + esc(data?.id || "q" + idx) + '"></div><div class="field"><label>Topic</label><input type="text" class="q-topic" placeholder="Topic name" value="' + esc(data?.topic || "") + '"></div></div>' +
+      '<div class="field"><label>Question Text</label><textarea class="q-text" rows="2" placeholder="The main question to ask...">' + esc(data?.text || "") + '</textarea></div>' +
+      '<div class="field"><label>Probes</label><div class="probes-list"></div><button class="btn btn-small btn-secondary add-probe-btn" type="button">+ Add Probe</button></div>';
+
+    list.appendChild(item);
+    item.querySelector('[data-action="remove"]').addEventListener("click", () => { item.remove(); renumberQuestions(); });
+    item.querySelector('[data-action="move-up"]').addEventListener("click", () => { const prev = item.previousElementSibling; if (prev) { list.insertBefore(item, prev); renumberQuestions(); } });
+    item.querySelector('[data-action="move-down"]').addEventListener("click", () => { const next = item.nextElementSibling; if (next) { list.insertBefore(next, item); renumberQuestions(); } });
+    item.querySelector(".add-probe-btn").addEventListener("click", () => addProbe(item.querySelector(".probes-list"), ""));
+    if (data?.probes) data.probes.forEach((p) => addProbe(item.querySelector(".probes-list"), p));
+    return item;
+  }
+
+  function addProbe(container, value) {
+    const row = document.createElement("div");
+    row.className = "probe-row";
+    row.innerHTML = '<input type="text" class="probe-input" placeholder="Follow-up probe..." value="' + esc(value) + '"><button class="btn-icon btn-icon-danger" title="Remove">&times;</button>';
+    row.querySelector(".btn-icon").addEventListener("click", () => row.remove());
+    container.appendChild(row);
+  }
+
+  function renumberQuestions() {
+    $$("#b-questions-list .builder-item").forEach((item, i) => {
+      item.querySelector(".item-label").textContent = "Question " + (i + 1);
+    });
+  }
+
+  function addBranch(data) {
+    branchCounter++;
+    const list = $("#b-branching-list");
+    const item = document.createElement("div");
+    item.className = "builder-item";
+    item.innerHTML =
+      '<div class="builder-item-header"><span class="item-label">Rule ' + branchCounter + '</span><div class="item-actions"><button class="btn-icon btn-icon-danger" title="Remove" data-action="remove">&times;</button></div></div>' +
+      '<div class="field-row"><div class="field"><label>After Question ID</label><input type="text" class="br-after" placeholder="q2" value="' + esc(data?.trigger?.after || "") + '"></div><div class="field"><label>If Themes (comma-separated)</label><input type="text" class="br-themes" placeholder="conflict, dysfunction" value="' + esc(data?.trigger?.if_themes?.join(", ") || "") + '"></div></div>' +
+      '<div class="field-row"><div class="field"><label>Follow-up ID</label><input type="text" class="br-fu-id" placeholder="q2a" value="' + esc(data?.follow_up?.id || "") + '"></div><div class="field"><label>Follow-up Topic</label><input type="text" class="br-fu-topic" placeholder="Conflict Resolution" value="' + esc(data?.follow_up?.topic || "") + '"></div></div>' +
+      '<div class="field"><label>Follow-up Question</label><textarea class="br-fu-text" rows="2" placeholder="Follow-up question text...">' + esc(data?.follow_up?.text || "") + '</textarea></div>' +
+      '<div class="field"><label>Follow-up Probes (comma-separated)</label><input type="text" class="br-fu-probes" placeholder="Who steps in?, How do you feel?" value="' + esc(data?.follow_up?.probes?.join(", ") || "") + '"></div>';
+    list.appendChild(item);
+    item.querySelector('[data-action="remove"]').addEventListener("click", () => item.remove());
+  }
+
+  function addTheme(data) {
+    themeCounter++;
+    const list = $("#b-themes-list");
+    const item = document.createElement("div");
+    item.className = "builder-item";
+    item.innerHTML =
+      '<div class="builder-item-header"><span class="item-label">Theme ' + themeCounter + '</span><div class="item-actions"><button class="btn-icon btn-icon-danger" title="Remove" data-action="remove">&times;</button></div></div>' +
+      '<div class="field-row"><div class="field"><label>Code</label><input type="text" class="th-code" placeholder="autonomy" value="' + esc(data?.code || "") + '"></div><div class="field"><label>Label</label><input type="text" class="th-label" placeholder="Autonomy & Ownership" value="' + esc(data?.label || "") + '"></div></div>' +
+      '<div class="field"><label>Description</label><input type="text" class="th-desc" placeholder="What this theme captures..." value="' + esc(data?.description || "") + '"></div>';
+    list.appendChild(item);
+    item.querySelector('[data-action="remove"]').addEventListener("click", () => item.remove());
+  }
+
+  function buildConfig() {
+    const questions = [];
+    $$("#b-questions-list .builder-item").forEach((item) => {
+      const probes = [];
+      item.querySelectorAll(".probe-input").forEach((inp) => { const v = inp.value.trim(); if (v) probes.push(v); });
+      questions.push({ id: item.querySelector(".q-id").value.trim() || "q" + (questions.length + 1), topic: item.querySelector(".q-topic").value.trim(), text: item.querySelector(".q-text").value.trim(), probes: probes.length > 0 ? probes : undefined });
+    });
+
+    const branching = [];
+    $$("#b-branching-list .builder-item").forEach((item) => {
+      const themesStr = item.querySelector(".br-themes").value.trim();
+      const probesStr = item.querySelector(".br-fu-probes").value.trim();
+      branching.push({ trigger: { after: item.querySelector(".br-after").value.trim(), if_themes: themesStr ? themesStr.split(",").map((s) => s.trim()).filter(Boolean) : [] }, follow_up: { id: item.querySelector(".br-fu-id").value.trim(), topic: item.querySelector(".br-fu-topic").value.trim(), text: item.querySelector(".br-fu-text").value.trim(), probes: probesStr ? probesStr.split(",").map((s) => s.trim()).filter(Boolean) : undefined } });
+    });
+
+    const themes = [];
+    $$("#b-themes-list .builder-item").forEach((item) => {
+      themes.push({ code: item.querySelector(".th-code").value.trim(), label: item.querySelector(".th-label").value.trim(), description: item.querySelector(".th-desc").value.trim() });
+    });
+
+    const identityFields = $("#b-identity-fields").value.trim();
+    const config = {
+      id: $("#b-id").value.trim() || "untitled-study",
+      title: $("#b-title").value.trim(),
+      version: $("#b-version").value.trim() || "1.0",
+      description: $("#b-description").value.trim() || undefined,
+      irb: { disclosure: $("#b-irb-disclosure").value.trim(), principal_investigator: $("#b-irb-pi").value.trim() || undefined, protocol_number: $("#b-irb-protocol").value.trim() || undefined, contact_email: $("#b-irb-email").value.trim() || undefined, institution: $("#b-irb-institution").value.trim() || undefined },
+      persona: { name: $("#b-persona-name").value.trim() || "Synap", system_prompt: $("#b-persona-prompt").value.trim(), greeting: $("#b-persona-greeting").value.trim() },
+      guide: { questions, branching: branching.length > 0 ? branching : undefined, closing: $("#b-closing").value.trim() },
+      coding_schema: { themes },
+      identity: {
+        environment: $("#b-identity-env").value,
+        enrich_profile: $("#b-identity-enrich").value === "true",
+        profile_fields: identityFields ? identityFields.split(",").map((s) => s.trim()).filter(Boolean) : undefined,
+        anonymize: $("#b-identity-anon").value === "true",
+        msal_client_id: $("#b-identity-client").value.trim() || undefined,
+        msal_authority: $("#b-identity-authority").value.trim() || undefined,
+      },
+      storage: {
+        provider: $("#b-storage-provider").value,
+        base_dir: $("#b-storage-basedir").value.trim() || undefined,
+      },
+      settings: {
+        ai_provider: $("#b-provider").value,
+        ai_model: $("#b-model").value.trim() || undefined,
+        temperature: parseFloat($("#b-temperature").value) || 0.7,
+        max_tokens: parseInt($("#b-max-tokens").value) || 1024,
+        max_turns: parseInt($("#b-max-turns").value) || 30,
+        supabase_url: $("#b-supabase-url").value.trim() || undefined,
+        supabase_anon_key: $("#b-supabase-key").value.trim() || undefined,
+        azure_functions_url: $("#b-azure-url").value.trim() || undefined,
+        endpoint: null,
+      },
+    };
+    return JSON.parse(JSON.stringify(config));
+  }
+
+  function loadConfigFile(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function (ev) {
+      try { populateForm(JSON.parse(ev.target.result)); } catch (err) { alert("Invalid JSON: " + err.message); }
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  }
+
+  function populateForm(config) {
+    $("#b-id").value = config.id || "";
+    $("#b-title").value = config.title || "";
+    $("#b-version").value = config.version || "1.0";
+    $("#b-description").value = config.description || "";
+    $("#b-irb-disclosure").value = config.irb?.disclosure || "";
+    $("#b-irb-pi").value = config.irb?.principal_investigator || "";
+    $("#b-irb-protocol").value = config.irb?.protocol_number || "";
+    $("#b-irb-email").value = config.irb?.contact_email || "";
+    $("#b-irb-institution").value = config.irb?.institution || "";
+    $("#b-persona-name").value = config.persona?.name || "Synap";
+    $("#b-persona-prompt").value = config.persona?.system_prompt || "";
+    $("#b-persona-greeting").value = config.persona?.greeting || "";
+
+    $("#b-questions-list").innerHTML = ""; questionCounter = 0;
+    if (config.guide?.questions) config.guide.questions.forEach((q) => addQuestion(q));
+    $("#b-closing").value = config.guide?.closing || "";
+
+    $("#b-branching-list").innerHTML = ""; branchCounter = 0;
+    if (config.guide?.branching) config.guide.branching.forEach((b) => addBranch(b));
+
+    $("#b-themes-list").innerHTML = ""; themeCounter = 0;
+    if (config.coding_schema?.themes) config.coding_schema.themes.forEach((t) => addTheme(t));
+
+    // Identity
+    $("#b-identity-env").value = config.identity?.environment || "auto";
+    $("#b-identity-enrich").value = config.identity?.enrich_profile !== false ? "true" : "false";
+    $("#b-identity-anon").value = config.identity?.anonymize ? "true" : "false";
+    $("#b-identity-fields").value = (config.identity?.profile_fields || []).join(", ");
+    $("#b-identity-client").value = config.identity?.msal_client_id || "";
+    $("#b-identity-authority").value = config.identity?.msal_authority || "";
+
+    // Storage
+    $("#b-storage-provider").value = config.storage?.provider || "supabase";
+    $("#b-storage-basedir").value = config.storage?.base_dir || "./data";
+
+    // Settings
+    $("#b-provider").value = config.settings?.ai_provider || "mock";
+    $("#b-model").value = config.settings?.ai_model || "";
+    $("#b-temperature").value = config.settings?.temperature ?? 0.7;
+    $("#b-max-tokens").value = config.settings?.max_tokens || 1024;
+    $("#b-max-turns").value = config.settings?.max_turns || 30;
+    $("#b-supabase-url").value = config.settings?.supabase_url || "";
+    $("#b-supabase-key").value = config.settings?.supabase_anon_key || "";
+    $("#b-azure-url").value = config.settings?.azure_functions_url || "";
+  }
+
+  function togglePreview() {
+    const panel = $("#builder-preview-panel");
+    if (panel.hidden) {
+      $("#builder-json-output").textContent = JSON.stringify(buildConfig(), null, 2);
+      panel.hidden = false;
+    } else { panel.hidden = true; }
+  }
+
+  function downloadConfig() {
+    const config = buildConfig();
+    download(JSON.stringify(config, null, 2), (config.id || "config") + ".json", "application/json");
+  }
+
   // ── Helpers ────────────────────────────────────────────────
+  function showError(msg) {
+    document.body.innerHTML = '<div style="padding:40px;text-align:center;color:#666;"><h2>Configuration Error</h2><p>' + esc(msg) + '</p></div>';
+  }
+
   function esc(str) {
     if (!str) return "";
     const div = document.createElement("div");
@@ -492,327 +844,6 @@
     return secs + "s";
   }
 
-  // ── Config Builder ───────────────────────────────────────────
-  let questionCounter = 0;
-  let branchCounter = 0;
-  let themeCounter = 0;
-
-  function initBuilder() {
-    $("#b-add-question").addEventListener("click", () => addQuestion());
-    $("#b-add-branch").addEventListener("click", () => addBranch());
-    $("#b-add-theme").addEventListener("click", () => addTheme());
-    $("#builder-download").addEventListener("click", downloadConfig);
-    $("#builder-preview").addEventListener("click", togglePreview);
-    $("#builder-close-preview").addEventListener("click", togglePreview);
-    $("#builder-load").addEventListener("change", loadConfigFile);
-  }
-
-  // ── Question management ────────────────────────────────────
-  function addQuestion(data) {
-    questionCounter++;
-    const idx = questionCounter;
-    const list = $("#b-questions-list");
-
-    const item = document.createElement("div");
-    item.className = "builder-item";
-    item.dataset.qIdx = idx;
-    item.innerHTML =
-      '<div class="builder-item-header">' +
-        '<span class="item-label">Question ' + idx + '</span>' +
-        '<div class="item-actions">' +
-          '<button class="btn-icon" title="Move up" data-action="move-up">&uarr;</button>' +
-          '<button class="btn-icon" title="Move down" data-action="move-down">&darr;</button>' +
-          '<button class="btn-icon btn-icon-danger" title="Remove" data-action="remove">&times;</button>' +
-        '</div>' +
-      '</div>' +
-      '<div class="field-row">' +
-        '<div class="field"><label>ID</label><input type="text" class="q-id" placeholder="q' + idx + '" value="' + esc(data?.id || "q" + idx) + '"></div>' +
-        '<div class="field"><label>Topic</label><input type="text" class="q-topic" placeholder="Topic name" value="' + esc(data?.topic || "") + '"></div>' +
-      '</div>' +
-      '<div class="field"><label>Question Text</label><textarea class="q-text" rows="2" placeholder="The main question to ask...">' + esc(data?.text || "") + '</textarea></div>' +
-      '<div class="field"><label>Probes</label><div class="probes-list"></div>' +
-        '<button class="btn btn-small btn-secondary add-probe-btn" type="button">+ Add Probe</button>' +
-      '</div>';
-
-    list.appendChild(item);
-
-    // Wire up actions
-    item.querySelector('[data-action="remove"]').addEventListener("click", () => {
-      item.remove();
-      renumberQuestions();
-    });
-    item.querySelector('[data-action="move-up"]').addEventListener("click", () => {
-      const prev = item.previousElementSibling;
-      if (prev) { list.insertBefore(item, prev); renumberQuestions(); }
-    });
-    item.querySelector('[data-action="move-down"]').addEventListener("click", () => {
-      const next = item.nextElementSibling;
-      if (next) { list.insertBefore(next, item); renumberQuestions(); }
-    });
-    item.querySelector(".add-probe-btn").addEventListener("click", () => {
-      addProbe(item.querySelector(".probes-list"), "");
-    });
-
-    // Add existing probes
-    if (data?.probes) {
-      data.probes.forEach((p) => addProbe(item.querySelector(".probes-list"), p));
-    }
-
-    return item;
-  }
-
-  function addProbe(container, value) {
-    const row = document.createElement("div");
-    row.className = "probe-row";
-    row.innerHTML =
-      '<input type="text" class="probe-input" placeholder="Follow-up probe..." value="' + esc(value) + '">' +
-      '<button class="btn-icon btn-icon-danger" title="Remove">&times;</button>';
-    row.querySelector(".btn-icon").addEventListener("click", () => row.remove());
-    container.appendChild(row);
-  }
-
-  function renumberQuestions() {
-    const items = $$("#b-questions-list .builder-item");
-    items.forEach((item, i) => {
-      item.querySelector(".item-label").textContent = "Question " + (i + 1);
-    });
-  }
-
-  // ── Branching management ───────────────────────────────────
-  function addBranch(data) {
-    branchCounter++;
-    const list = $("#b-branching-list");
-
-    const item = document.createElement("div");
-    item.className = "builder-item";
-    item.innerHTML =
-      '<div class="builder-item-header">' +
-        '<span class="item-label">Rule ' + branchCounter + '</span>' +
-        '<div class="item-actions">' +
-          '<button class="btn-icon btn-icon-danger" title="Remove" data-action="remove">&times;</button>' +
-        '</div>' +
-      '</div>' +
-      '<div class="field-row">' +
-        '<div class="field"><label>After Question ID</label><input type="text" class="br-after" placeholder="q2" value="' + esc(data?.trigger?.after || "") + '"></div>' +
-        '<div class="field"><label>If Themes (comma-separated)</label><input type="text" class="br-themes" placeholder="conflict, dysfunction" value="' + esc(data?.trigger?.if_themes?.join(", ") || "") + '"></div>' +
-      '</div>' +
-      '<div class="field-row">' +
-        '<div class="field"><label>Follow-up ID</label><input type="text" class="br-fu-id" placeholder="q2a" value="' + esc(data?.follow_up?.id || "") + '"></div>' +
-        '<div class="field"><label>Follow-up Topic</label><input type="text" class="br-fu-topic" placeholder="Conflict Resolution" value="' + esc(data?.follow_up?.topic || "") + '"></div>' +
-      '</div>' +
-      '<div class="field"><label>Follow-up Question</label><textarea class="br-fu-text" rows="2" placeholder="Follow-up question text...">' + esc(data?.follow_up?.text || "") + '</textarea></div>' +
-      '<div class="field"><label>Follow-up Probes (comma-separated)</label><input type="text" class="br-fu-probes" placeholder="Who steps in?, How do you feel?" value="' + esc(data?.follow_up?.probes?.join(", ") || "") + '"></div>';
-
-    list.appendChild(item);
-    item.querySelector('[data-action="remove"]').addEventListener("click", () => item.remove());
-  }
-
-  // ── Theme management ───────────────────────────────────────
-  function addTheme(data) {
-    themeCounter++;
-    const list = $("#b-themes-list");
-
-    const item = document.createElement("div");
-    item.className = "builder-item";
-    item.innerHTML =
-      '<div class="builder-item-header">' +
-        '<span class="item-label">Theme ' + themeCounter + '</span>' +
-        '<div class="item-actions">' +
-          '<button class="btn-icon btn-icon-danger" title="Remove" data-action="remove">&times;</button>' +
-        '</div>' +
-      '</div>' +
-      '<div class="field-row">' +
-        '<div class="field"><label>Code</label><input type="text" class="th-code" placeholder="autonomy" value="' + esc(data?.code || "") + '"></div>' +
-        '<div class="field"><label>Label</label><input type="text" class="th-label" placeholder="Autonomy & Ownership" value="' + esc(data?.label || "") + '"></div>' +
-      '</div>' +
-      '<div class="field"><label>Description</label><input type="text" class="th-desc" placeholder="What this theme captures..." value="' + esc(data?.description || "") + '"></div>';
-
-    list.appendChild(item);
-    item.querySelector('[data-action="remove"]').addEventListener("click", () => item.remove());
-  }
-
-  // ── Build JSON from form ───────────────────────────────────
-  function buildConfig() {
-    // Questions
-    const questions = [];
-    $$("#b-questions-list .builder-item").forEach((item) => {
-      const probes = [];
-      item.querySelectorAll(".probe-input").forEach((inp) => {
-        const v = inp.value.trim();
-        if (v) probes.push(v);
-      });
-      questions.push({
-        id: item.querySelector(".q-id").value.trim() || "q" + (questions.length + 1),
-        topic: item.querySelector(".q-topic").value.trim(),
-        text: item.querySelector(".q-text").value.trim(),
-        probes: probes.length > 0 ? probes : undefined,
-      });
-    });
-
-    // Branching
-    const branching = [];
-    $$("#b-branching-list .builder-item").forEach((item) => {
-      const themesStr = item.querySelector(".br-themes").value.trim();
-      const probesStr = item.querySelector(".br-fu-probes").value.trim();
-      branching.push({
-        trigger: {
-          after: item.querySelector(".br-after").value.trim(),
-          if_themes: themesStr ? themesStr.split(",").map((s) => s.trim()).filter(Boolean) : [],
-        },
-        follow_up: {
-          id: item.querySelector(".br-fu-id").value.trim(),
-          topic: item.querySelector(".br-fu-topic").value.trim(),
-          text: item.querySelector(".br-fu-text").value.trim(),
-          probes: probesStr ? probesStr.split(",").map((s) => s.trim()).filter(Boolean) : undefined,
-        },
-      });
-    });
-
-    // Themes
-    const themes = [];
-    $$("#b-themes-list .builder-item").forEach((item) => {
-      themes.push({
-        code: item.querySelector(".th-code").value.trim(),
-        label: item.querySelector(".th-label").value.trim(),
-        description: item.querySelector(".th-desc").value.trim(),
-      });
-    });
-
-    const config = {
-      id: $("#b-id").value.trim() || "untitled-study",
-      title: $("#b-title").value.trim(),
-      version: $("#b-version").value.trim() || "1.0",
-      description: $("#b-description").value.trim() || undefined,
-      irb: {
-        disclosure: $("#b-irb-disclosure").value.trim(),
-        principal_investigator: $("#b-irb-pi").value.trim() || undefined,
-        protocol_number: $("#b-irb-protocol").value.trim() || undefined,
-        contact_email: $("#b-irb-email").value.trim() || undefined,
-        institution: $("#b-irb-institution").value.trim() || undefined,
-      },
-      persona: {
-        name: $("#b-persona-name").value.trim() || "Synap",
-        system_prompt: $("#b-persona-prompt").value.trim(),
-        greeting: $("#b-persona-greeting").value.trim(),
-      },
-      guide: {
-        questions: questions,
-        branching: branching.length > 0 ? branching : undefined,
-        closing: $("#b-closing").value.trim(),
-      },
-      coding_schema: {
-        themes: themes,
-      },
-      settings: {
-        ai_provider: $("#b-provider").value,
-        ai_model: $("#b-model").value.trim() || undefined,
-        temperature: parseFloat($("#b-temperature").value) || 0.7,
-        max_tokens: parseInt($("#b-max-tokens").value) || 1024,
-        max_turns: parseInt($("#b-max-turns").value) || 30,
-        supabase_url: $("#b-supabase-url").value.trim() || undefined,
-        supabase_anon_key: $("#b-supabase-key").value.trim() || undefined,
-        endpoint: null,
-      },
-    };
-
-    // Clean undefined values
-    return JSON.parse(JSON.stringify(config));
-  }
-
-  // ── Load config file ───────────────────────────────────────
-  function loadConfigFile(e) {
-    const file = e.target.files[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = function (ev) {
-      try {
-        const config = JSON.parse(ev.target.result);
-        populateForm(config);
-      } catch (err) {
-        alert("Invalid JSON file: " + err.message);
-      }
-    };
-    reader.readAsText(file);
-    // Reset so same file can be loaded again
-    e.target.value = "";
-  }
-
-  function populateForm(config) {
-    // Study info
-    $("#b-id").value = config.id || "";
-    $("#b-title").value = config.title || "";
-    $("#b-version").value = config.version || "1.0";
-    $("#b-description").value = config.description || "";
-
-    // IRB
-    $("#b-irb-disclosure").value = config.irb?.disclosure || "";
-    $("#b-irb-pi").value = config.irb?.principal_investigator || "";
-    $("#b-irb-protocol").value = config.irb?.protocol_number || "";
-    $("#b-irb-email").value = config.irb?.contact_email || "";
-    $("#b-irb-institution").value = config.irb?.institution || "";
-
-    // Persona
-    $("#b-persona-name").value = config.persona?.name || "Synap";
-    $("#b-persona-prompt").value = config.persona?.system_prompt || "";
-    $("#b-persona-greeting").value = config.persona?.greeting || "";
-
-    // Clear and rebuild questions
-    $("#b-questions-list").innerHTML = "";
-    questionCounter = 0;
-    if (config.guide?.questions) {
-      config.guide.questions.forEach((q) => addQuestion(q));
-    }
-
-    // Closing
-    $("#b-closing").value = config.guide?.closing || "";
-
-    // Clear and rebuild branching
-    $("#b-branching-list").innerHTML = "";
-    branchCounter = 0;
-    if (config.guide?.branching) {
-      config.guide.branching.forEach((b) => addBranch(b));
-    }
-
-    // Clear and rebuild themes
-    $("#b-themes-list").innerHTML = "";
-    themeCounter = 0;
-    if (config.coding_schema?.themes) {
-      config.coding_schema.themes.forEach((t) => addTheme(t));
-    }
-
-    // Settings
-    $("#b-provider").value = config.settings?.ai_provider || "mock";
-    $("#b-model").value = config.settings?.ai_model || "";
-    $("#b-temperature").value = config.settings?.temperature ?? 0.7;
-    $("#b-max-tokens").value = config.settings?.max_tokens || 1024;
-    $("#b-max-turns").value = config.settings?.max_turns || 30;
-    $("#b-supabase-url").value = config.settings?.supabase_url || "";
-    $("#b-supabase-key").value = config.settings?.supabase_anon_key || "";
-  }
-
-  // ── Preview / Download ─────────────────────────────────────
-  function togglePreview() {
-    const panel = $("#builder-preview-panel");
-    if (panel.hidden) {
-      const config = buildConfig();
-      $("#builder-json-output").textContent = JSON.stringify(config, null, 2);
-      panel.hidden = false;
-    } else {
-      panel.hidden = true;
-    }
-  }
-
-  function downloadConfig() {
-    const config = buildConfig();
-    const filename = (config.id || "config") + ".json";
-    const content = JSON.stringify(config, null, 2);
-    download(content, filename, "application/json");
-  }
-
   // ── Start ──────────────────────────────────────────────────
-  document.addEventListener("DOMContentLoaded", () => {
-    init();
-    initBuilder();
-  });
+  document.addEventListener("DOMContentLoaded", init);
 })();

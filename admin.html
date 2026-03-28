@@ -8,20 +8,47 @@
 </head>
 <body>
 
-  <!-- Connect Screen -->
-  <div id="connect-screen" class="connect-overlay">
+  <!-- Login Screen -->
+  <div id="login-screen" class="connect-overlay">
     <div class="connect-modal">
       <h1>Synap Admin</h1>
-      <p class="connect-sub">Connect to your Supabase project to view interview data.</p>
-      <form id="connect-form">
-        <label for="sb-url">Supabase URL</label>
-        <input type="url" id="sb-url" placeholder="https://your-project.supabase.co" required>
-        <label for="sb-key">Service Role Key</label>
-        <input type="password" id="sb-key" placeholder="eyJhbGciOi..." required>
-        <p class="connect-hint">Found in Dashboard &gt; Settings &gt; API &gt; service_role (secret)</p>
-        <button type="submit" class="btn btn-primary">Connect</button>
-        <div id="connect-error" class="connect-error" hidden></div>
+      <p class="connect-sub">Sign in to manage your studies.</p>
+
+      <!-- Supabase Auth (public mode) -->
+      <form id="login-form">
+        <label for="login-email">Email</label>
+        <input type="email" id="login-email" placeholder="researcher@example.org" required>
+        <label for="login-password">Password</label>
+        <input type="password" id="login-password" placeholder="Password" required>
+        <button type="submit" class="btn btn-primary" id="login-btn">Sign In</button>
+        <div id="login-error" class="connect-error" hidden></div>
       </form>
+
+      <!-- Corporate SSO button -->
+      <div id="sso-section" hidden>
+        <div class="login-divider"><span>or</span></div>
+        <button id="sso-btn" class="btn btn-secondary btn-full">Sign in with your organization</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Study Picker -->
+  <div id="study-picker" class="connect-overlay" hidden>
+    <div class="connect-modal study-picker-modal">
+      <div class="picker-header">
+        <h1>Select a Study</h1>
+        <div class="picker-user">
+          <span id="picker-user-name"></span>
+          <button id="picker-logout" class="btn btn-small btn-secondary">Sign Out</button>
+        </div>
+      </div>
+      <div id="picker-studies" class="picker-list"></div>
+      <div id="picker-empty" class="empty-state" hidden>
+        No studies available. Contact an admin to get access.
+      </div>
+      <div class="picker-footer">
+        <button id="picker-all-studies" class="btn btn-small btn-secondary">View All Studies</button>
+      </div>
     </div>
   </div>
 
@@ -32,6 +59,9 @@
         <h2>Synap</h2>
         <span class="sidebar-sub">Admin</span>
       </div>
+      <div class="sidebar-study" id="sidebar-study">
+        <select id="study-switcher" class="select select-full"></select>
+      </div>
       <ul class="sidebar-nav">
         <li><a href="#" class="nav-link active" data-view="sessions">Sessions</a></li>
         <li><a href="#" class="nav-link" data-view="themes">Themes</a></li>
@@ -39,7 +69,8 @@
         <li><a href="#" class="nav-link" data-view="builder">Config Builder</a></li>
       </ul>
       <div class="sidebar-footer">
-        <button id="disconnect-btn" class="btn btn-small btn-secondary">Disconnect</button>
+        <div class="sidebar-user" id="sidebar-user"></div>
+        <button id="logout-btn" class="btn btn-small btn-secondary">Sign Out</button>
       </div>
     </nav>
 
@@ -49,9 +80,6 @@
         <div class="view-header">
           <h1>Sessions</h1>
           <div class="view-controls">
-            <select id="filter-config" class="select">
-              <option value="">All Studies</option>
-            </select>
             <select id="filter-status" class="select">
               <option value="">All Statuses</option>
               <option value="active">Active</option>
@@ -66,8 +94,8 @@
             <thead>
               <tr>
                 <th>Session ID</th>
-                <th>Study</th>
                 <th>Status</th>
+                <th>Participant</th>
                 <th>Turns</th>
                 <th>Started</th>
                 <th>Duration</th>
@@ -87,6 +115,10 @@
           <h1 id="transcript-title">Transcript</h1>
         </div>
         <div class="transcript-meta" id="transcript-meta"></div>
+        <div class="transcript-profile" id="transcript-profile" hidden>
+          <h3>Participant Profile</h3>
+          <div id="transcript-profile-data"></div>
+        </div>
         <div class="transcript-messages" id="transcript-messages"></div>
         <div class="transcript-themes" id="transcript-themes">
           <h3>Detected Themes</h3>
@@ -99,9 +131,6 @@
         <div class="view-header">
           <h1>Themes</h1>
           <div class="view-controls">
-            <select id="theme-config-filter" class="select">
-              <option value="">All Studies</option>
-            </select>
             <button id="refresh-themes" class="btn btn-small btn-secondary">Refresh</button>
           </div>
         </div>
@@ -161,13 +190,8 @@
             </div>
           </div>
         </div>
-        <div class="export-filter">
-          <label for="export-config-filter">Filter by study:</label>
-          <select id="export-config-filter" class="select">
-            <option value="">All Studies</option>
-          </select>
-        </div>
       </div>
+
       <!-- Config Builder View -->
       <div id="view-builder" class="view" hidden>
         <div class="view-header">
@@ -182,7 +206,6 @@
         </div>
 
         <div class="builder-layout">
-          <!-- Left: Form -->
           <div class="builder-form">
 
             <!-- Study Info -->
@@ -281,6 +304,70 @@
               <button id="b-add-theme" class="btn btn-small btn-secondary" type="button">+ Add Theme</button>
             </fieldset>
 
+            <!-- Identity -->
+            <fieldset class="builder-section">
+              <legend>Identity (Corporate)</legend>
+              <p class="field-hint">Configure Azure AD profile enrichment for corporate deployments.</p>
+              <div class="field-row">
+                <div class="field">
+                  <label for="b-identity-env">Environment</label>
+                  <select id="b-identity-env" class="select">
+                    <option value="auto">Auto-detect</option>
+                    <option value="corporate">Corporate</option>
+                    <option value="public">Public</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="b-identity-enrich">Enrich Profile</label>
+                  <select id="b-identity-enrich" class="select">
+                    <option value="true">Yes</option>
+                    <option value="false">No</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="b-identity-anon">Anonymize</label>
+                  <select id="b-identity-anon" class="select">
+                    <option value="false">No</option>
+                    <option value="true">Yes</option>
+                  </select>
+                </div>
+              </div>
+              <div class="field">
+                <label for="b-identity-fields">Profile Fields (comma-separated)</label>
+                <input type="text" id="b-identity-fields" placeholder="displayName, department, jobTitle, officeLocation, employeeId" value="displayName, department, jobTitle, officeLocation, employeeId">
+              </div>
+              <div class="field-row">
+                <div class="field">
+                  <label for="b-identity-client">MSAL Client ID</label>
+                  <input type="text" id="b-identity-client" placeholder="Azure AD app client ID">
+                </div>
+                <div class="field">
+                  <label for="b-identity-authority">MSAL Authority</label>
+                  <input type="text" id="b-identity-authority" placeholder="https://login.microsoftonline.com/your-tenant-id">
+                </div>
+              </div>
+            </fieldset>
+
+            <!-- Storage -->
+            <fieldset class="builder-section">
+              <legend>Storage</legend>
+              <p class="field-hint">Configure where interview data is stored (Azure Functions backend only).</p>
+              <div class="field">
+                <label for="b-storage-provider">Storage Provider</label>
+                <select id="b-storage-provider" class="select">
+                  <option value="supabase">Supabase (uses Edge Functions)</option>
+                  <option value="cosmosdb">Cosmos DB</option>
+                  <option value="azuresql">Azure SQL</option>
+                  <option value="sharepoint">SharePoint Lists</option>
+                  <option value="json-file">JSON Files (local/zero-infra)</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="b-storage-basedir">Base Directory (json-file only)</label>
+                <input type="text" id="b-storage-basedir" placeholder="./data" value="./data">
+              </div>
+            </fieldset>
+
             <!-- Settings -->
             <fieldset class="builder-section">
               <legend>Settings</legend>
@@ -323,6 +410,10 @@
                   <label for="b-supabase-key">Supabase Anon Key</label>
                   <input type="text" id="b-supabase-key" placeholder="eyJhbGciOi...">
                 </div>
+              </div>
+              <div class="field">
+                <label for="b-azure-url">Azure Functions URL</label>
+                <input type="url" id="b-azure-url" placeholder="https://your-app.azurewebsites.net">
               </div>
             </fieldset>
 

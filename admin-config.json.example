@@ -1,0 +1,14 @@
+{
+  "supabase_url": "https://your-project.supabase.co",
+  "supabase_anon_key": "your-anon-key",
+
+  "auth_mode": "supabase",
+
+  "corporate": {
+    "enabled": false,
+    "msal_client_id": null,
+    "msal_authority": "https://login.microsoftonline.com/your-tenant-id",
+    "msal_redirect_uri": null,
+    "required_group": null
+  }
+}
