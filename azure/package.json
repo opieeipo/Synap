@@ -1,0 +1,20 @@
+{
+  "name": "synap-azure-functions",
+  "version": "1.0.0",
+  "description": "Synap Azure Functions backend with pluggable storage",
+  "main": "functions/*/index.ts",
+  "scripts": {
+    "start": "func start",
+    "build": "tsc"
+  },
+  "dependencies": {
+    "@azure/functions": "^4.0.0"
+  },
+  "optionalDependencies": {
+    "tedious": "^18.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "@types/node": "^20.0.0"
+  }
+}

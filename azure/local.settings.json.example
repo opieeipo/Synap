@@ -1,0 +1,31 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "AzureWebJobsStorage": "",
+    "FUNCTIONS_WORKER_RUNTIME": "node",
+
+    "STORAGE_PROVIDER": "json-file",
+    "STORAGE_BASE_DIR": "./data",
+
+    "ANTHROPIC_API_KEY": "sk-ant-...",
+    "OPENAI_API_KEY": "sk-...",
+    "AZURE_OPENAI_API_KEY": "",
+    "AZURE_OPENAI_ENDPOINT": "",
+    "AZURE_OPENAI_DEPLOYMENT": "",
+    "GEMINI_API_KEY": "",
+
+    "COSMOS_ENDPOINT": "https://your-account.documents.azure.com",
+    "COSMOS_KEY": "",
+    "COSMOS_DATABASE": "synap",
+
+    "SQL_SERVER": "your-server.database.windows.net",
+    "SQL_DATABASE": "synap",
+    "SQL_USER": "",
+    "SQL_PASSWORD": "",
+
+    "SP_SITE_ID": "",
+    "SP_TENANT_ID": "",
+    "SP_CLIENT_ID": "",
+    "SP_CLIENT_SECRET": ""
+  }
+}

@@ -2,3 +2,7 @@
 .DS_Store
 supabase/.temp
 configs/test.json
+azure/local.settings.json
+azure/node_modules
+azure/data
+data/

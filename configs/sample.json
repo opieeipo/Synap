@@ -107,6 +107,32 @@
     ]
   },
 
+  "identity": {
+    "environment": "auto",
+    "enrich_profile": true,
+    "profile_fields": ["displayName", "department", "jobTitle", "officeLocation", "employeeId"],
+    "anonymize": false,
+    "msal_client_id": null,
+    "msal_authority": "https://login.microsoftonline.com/your-tenant-id",
+    "msal_redirect_uri": null
+  },
+
+  "storage": {
+    "provider": "supabase",
+    "base_dir": "./data",
+    "cosmos_endpoint": null,
+    "cosmos_key": null,
+    "cosmos_database": "synap",
+    "sql_server": null,
+    "sql_database": "synap",
+    "sql_user": null,
+    "sql_password": null,
+    "sharepoint_site_id": null,
+    "sharepoint_tenant_id": null,
+    "sharepoint_client_id": null,
+    "sharepoint_client_secret": null
+  },
+
   "settings": {
     "ai_provider": "mock",
     "ai_model": "claude-sonnet-4-20250514",
@@ -115,6 +141,7 @@
     "max_turns": 30,
     "supabase_url": "https://your-project.supabase.co",
     "supabase_anon_key": "your-anon-key",
+    "azure_functions_url": null,
     "endpoint": null
   }
 }

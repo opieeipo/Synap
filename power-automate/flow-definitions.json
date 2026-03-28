@@ -1,0 +1,156 @@
+{
+  "description": "Power Automate flow skeleton definitions for Synap. Import these as a starting point and configure connections.",
+  "flows": [
+    {
+      "name": "Synap-Session-Start",
+      "trigger": {
+        "type": "HttpRequest",
+        "method": "POST",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "session_id": { "type": "string" },
+            "interview_config": { "type": "object" },
+            "participant_profile": { "type": "object" }
+          },
+          "required": ["session_id", "interview_config"]
+        }
+      },
+      "actions": [
+        {
+          "name": "Create_Session",
+          "type": "SharePoint-CreateItem",
+          "list": "SynapSessions",
+          "fields": {
+            "Title": "@triggerBody()?['session_id']",
+            "SessionId": "@triggerBody()?['session_id']",
+            "ConfigId": "@triggerBody()?['interview_config']?['id']",
+            "ConfigSnapshot": "@{string(triggerBody()?['interview_config'])}",
+            "Status": "active",
+            "StartedAt": "@utcNow()",
+            "TurnCount": 0
+          }
+        },
+        {
+          "name": "Create_Consent_Event",
+          "type": "SharePoint-CreateItem",
+          "list": "SynapEvents",
+          "fields": {
+            "Title": "@{triggerBody()?['session_id']}_consent",
+            "SessionId": "@triggerBody()?['session_id']",
+            "EventType": "consent_accepted",
+            "Payload": "@{string(createObject('config_id', triggerBody()?['interview_config']?['id']))}"
+          }
+        },
+        {
+          "name": "Create_Greeting_Message",
+          "type": "SharePoint-CreateItem",
+          "list": "SynapMessages",
+          "fields": {
+            "Title": "@{triggerBody()?['session_id']}_0_ai",
+            "SessionId": "@triggerBody()?['session_id']",
+            "Role": "ai",
+            "Content": "@{coalesce(triggerBody()?['interview_config']?['persona']?['greeting'], 'Hello, thanks for joining.')}",
+            "TurnNumber": 0,
+            "QuestionId": "@{coalesce(triggerBody()?['interview_config']?['guide']?['questions']?[0]?['id'], 'intro')}"
+          }
+        },
+        {
+          "name": "Response",
+          "type": "HttpResponse",
+          "statusCode": 200,
+          "body": {
+            "session_id": "@triggerBody()?['session_id']",
+            "greeting": "@{coalesce(triggerBody()?['interview_config']?['persona']?['greeting'], 'Hello, thanks for joining.')}",
+            "status": "active"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Synap-Chat",
+      "trigger": {
+        "type": "HttpRequest",
+        "method": "POST",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "session_id": { "type": "string" },
+            "message": { "type": "string" }
+          },
+          "required": ["session_id", "message"]
+        }
+      },
+      "actions_summary": [
+        "1. Get session from SynapSessions (filter by SessionId)",
+        "2. Get messages from SynapMessages (filter by SessionId, order by TurnNumber)",
+        "3. Compose system prompt from config snapshot + message history",
+        "4. Initialize turn_number = session.TurnCount + 1",
+        "5. Create user message in SynapMessages",
+        "6. HTTP POST to AI provider (switch on config.settings.ai_provider)",
+        "7. Parse AI response",
+        "8. Create AI message in SynapMessages",
+        "9. HTTP POST to AI provider for theme coding (parallel)",
+        "10. Parse themes JSON array",
+        "11. Apply-to-each: Create theme items in SynapThemes",
+        "12. Update session TurnCount in SynapSessions",
+        "13. HTTP Response with reply + themes"
+      ]
+    },
+    {
+      "name": "Synap-Session-End",
+      "trigger": {
+        "type": "HttpRequest",
+        "method": "POST",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "session_id": { "type": "string" },
+            "reason": { "type": "string" }
+          },
+          "required": ["session_id"]
+        }
+      },
+      "actions": [
+        {
+          "name": "Get_Session",
+          "type": "SharePoint-GetItems",
+          "list": "SynapSessions",
+          "filter": "SessionId eq '@{triggerBody()?['session_id']}'"
+        },
+        {
+          "name": "Update_Session",
+          "type": "SharePoint-UpdateItem",
+          "list": "SynapSessions",
+          "id": "@first(body('Get_Session')?['value'])?['ID']",
+          "fields": {
+            "Status": "completed",
+            "EndedAt": "@utcNow()",
+            "EndReason": "@{coalesce(triggerBody()?['reason'], 'participant_ended')}"
+          }
+        },
+        {
+          "name": "Create_End_Event",
+          "type": "SharePoint-CreateItem",
+          "list": "SynapEvents",
+          "fields": {
+            "Title": "@{triggerBody()?['session_id']}_ended",
+            "SessionId": "@triggerBody()?['session_id']",
+            "EventType": "interview_ended",
+            "Payload": "@{string(createObject('reason', coalesce(triggerBody()?['reason'], 'participant_ended')))}"
+          }
+        },
+        {
+          "name": "Response",
+          "type": "HttpResponse",
+          "statusCode": 200,
+          "body": {
+            "session_id": "@triggerBody()?['session_id']",
+            "status": "completed",
+            "end_reason": "@{coalesce(triggerBody()?['reason'], 'participant_ended')}"
+          }
+        }
+      ]
+    }
+  ]
+}

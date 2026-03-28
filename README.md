@@ -83,41 +83,87 @@ Supabase (Postgres) with four tables:
 ```
 Synap/
 ├── index.html                          # Main frontend shell
+├── admin.html                          # Researcher admin dashboard
 ├── run.sh                              # macOS/Linux launcher
 ├── run.bat                             # Windows launcher
 ├── configs/
 │   ├── sample.json                     # Example interview config
 │   └── CONFIG_GUIDE.md                 # Field-by-field config documentation
-├── admin.html                          # Researcher admin dashboard
 ├── static/
 │   ├── css/
 │   │   ├── synap.css                   # Interview UI styles
 │   │   └── admin.css                   # Admin dashboard styles
 │   └── js/
 │       ├── synap.js                    # Frontend logic (mock + live modes)
-│       └── admin.js                    # Admin dashboard logic
-├── supabase/
-│   ├── config.toml                     # Supabase project config (created by supabase init)
+│       ├── admin.js                    # Admin dashboard logic + config builder
+│       └── identity.js                 # Corporate identity detection (MSAL)
+├── supabase/                           # Public deployment backend
+│   ├── config.toml
 │   ├── migrations/
-│   │   └── 001_create_tables.sql       # Database schema
+│   │   └── 001_create_tables.sql
 │   └── functions/
 │       ├── _shared/
-│       │   ├── ai-providers.ts         # Multi-provider AI adapter
-│       │   ├── prompt-builder.ts       # System prompt + coding prompts
-│       │   └── db.ts                   # Supabase client + CRUD helpers
-│       ├── chat/index.ts               # /chat endpoint
-│       ├── session-start/index.ts      # /session-start endpoint
-│       └── session-end/index.ts        # /session-end endpoint
-├── .env.example                        # Environment variable template
+│       │   ├── ai-providers.ts
+│       │   ├── prompt-builder.ts
+│       │   └── db.ts
+│       ├── chat/index.ts
+│       ├── session-start/index.ts
+│       └── session-end/index.ts
+├── azure/                              # Corporate deployment backend
+│   ├── package.json
+│   ├── host.json
+│   ├── local.settings.json.example
+│   ├── shared/
+│   │   ├── ai-providers.ts            # Multi-provider AI (Node.js)
+│   │   └── prompt-builder.ts
+│   ├── storage/
+│   │   ├── interface.ts               # Pluggable storage contract
+│   │   ├── factory.ts                 # Storage adapter factory
+│   │   ├── json-file.ts              # Flat JSON file adapter
+│   │   ├── cosmosdb.ts               # Azure Cosmos DB adapter
+│   │   ├── azuresql.ts               # Azure SQL Database adapter
+│   │   └── sharepoint.ts             # SharePoint Lists adapter
+│   ├── identity/
+│   │   └── profile-enrichment.ts      # Azure AD profile enrichment
+│   └── functions/
+│       ├── chat/index.ts
+│       ├── session-start/index.ts
+│       └── session-end/index.ts
+├── power-automate/                     # Power Automate fallback
+│   ├── README.md
+│   └── flow-definitions.json
+├── .env.example
 └── .gitignore
 ```
 
 ## Deployment Targets
 
-| Environment | Orchestration | Storage | Auth |
-|-------------|--------------|---------|------|
-| Corporate | Azure Function / Power Automate | SharePoint | Azure AD |
-| Public | Supabase Edge Function | Supabase (Postgres) | Supabase Auth |
+| Environment | Orchestration | Storage | Identity |
+|-------------|--------------|---------|----------|
+| Public | Supabase Edge Functions | Supabase (Postgres) | None (anonymous) |
+| Corporate (preferred) | Azure Functions | Cosmos DB, Azure SQL, SharePoint, or JSON files | Azure AD (silent enrichment) |
+| Corporate (fallback) | Power Automate | SharePoint Lists | Azure AD |
+| Standalone | None (mock mode) | JSON files (local) | None |
+
+### Pluggable Storage
+
+The Azure Functions backend supports five storage backends, configured via `STORAGE_PROVIDER` env var or the config's `storage.provider` field:
+
+| Provider | Config Value | Best For |
+|----------|-------------|----------|
+| JSON Files | `json-file` | Zero-infrastructure, local testing, offline collection |
+| Cosmos DB | `cosmosdb` | Production corporate deployments at scale |
+| Azure SQL | `azuresql` | Organizations with existing SQL infrastructure |
+| SharePoint Lists | `sharepoint` | Quick deployment using existing Microsoft 365 |
+| Supabase | `supabase` | Public deployments (uses Supabase Edge Functions directly) |
+
+### Identity & Profile Enrichment
+
+In corporate environments, Synap can silently detect Azure AD identity and enrich session data with participant profile information (department, job title, location, employee ID). Configure via the `identity` block in the interview config:
+
+- **Auto-detect** — Tries MSAL silent auth; falls back to public mode if unavailable
+- **Corporate override** — Forces corporate mode (requires MSAL config)
+- **Anonymization** — Hashes PII (names, IDs) while preserving categorical data (department, title)
 
 ## Getting Started
 
@@ -188,12 +234,36 @@ The launcher starts a local server and opens the browser automatically.
    ./run.sh configs/my-study.json
    ```
 
+### Corporate Mode (Azure Functions)
+
+1. Navigate to the `azure/` directory and install dependencies:
+   ```bash
+   cd azure && npm install
+   ```
+
+2. Copy `local.settings.json.example` to `local.settings.json` and configure:
+   - `STORAGE_PROVIDER` — `json-file`, `cosmosdb`, `azuresql`, or `sharepoint`
+   - AI provider API keys
+   - Storage-specific connection settings
+
+3. Run locally:
+   ```bash
+   func start
+   ```
+
+4. Deploy to Azure:
+   ```bash
+   func azure functionapp publish your-app-name
+   ```
+
+5. Set `azure_functions_url` in your interview config to the deployed URL.
+
 ## Build Phases
 
 1. **Static chatbot** — HTML chat UI with mock AI and consent flow. *(Complete)*
 2. **Supabase backend** — Edge Functions, multi-provider AI, persistent storage. *(Complete)*
-3. **Azure/SharePoint adapter** — Corporate deployment target sharing the same frontend.
-4. **Researcher admin UI** — Dashboard for reviewing transcripts, coded themes, and exporting data. *(Complete)*
+3. **Corporate backend** — Azure Functions, pluggable storage (Cosmos DB/SQL/SharePoint/JSON), identity enrichment, Power Automate fallback. *(Complete)*
+4. **Researcher admin UI** — Dashboard with sessions, transcripts, themes, export, and config builder. *(Complete)*
 
 ### Admin Dashboard
 

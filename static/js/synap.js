@@ -10,6 +10,8 @@
   let config = null;
   let session = null;
   let backendUrl = null; // Base URL for Edge Functions
+  let detectedEnv = "public"; // "public" or "corporate"
+  let participantProfile = null;
 
   // ── DOM refs ───────────────────────────────────────────────
   const $ = (sel) => document.querySelector(sel);
@@ -47,6 +49,18 @@
     // Resolve backend URL from config or query params
     backendUrl = resolveBackendUrl();
 
+    // Detect environment and enrich identity if corporate
+    if (window.SynapIdentity && config.identity) {
+      try {
+        detectedEnv = await window.SynapIdentity.detect(config.identity);
+        if (detectedEnv === "corporate") {
+          participantProfile = await window.SynapIdentity.getProfile(config.identity);
+        }
+      } catch (err) {
+        console.warn("[Synap] Identity detection failed:", err);
+      }
+    }
+
     showConsent();
   }
 
@@ -57,13 +71,25 @@
 
   function resolveBackendUrl() {
     const params = new URLSearchParams(window.location.search);
-    // Priority: query param > config setting
+
+    // Priority: explicit endpoint > Azure Functions > Supabase > query params
+    if (config.settings.endpoint) {
+      return config.settings.endpoint.replace(/\/$/, "");
+    }
+
+    // Azure Functions URL
+    const azureUrl = params.get("azure_functions_url") || config.settings.azure_functions_url;
+    if (azureUrl) {
+      return azureUrl.replace(/\/$/, "") + "/api";
+    }
+
+    // Supabase
     const supabaseUrl = params.get("supabase_url") || config.settings.supabase_url;
     if (supabaseUrl) {
       return supabaseUrl.replace(/\/$/, "") + "/functions/v1";
     }
-    // Fall back to explicit endpoint if set
-    return config.settings.endpoint || null;
+
+    return null;
   }
 
   function isLiveMode() {
@@ -106,6 +132,7 @@
         const result = await callBackend("session-start", {
           session_id: session.id,
           interview_config: config,
+          participant_profile: participantProfile || undefined,
         });
         hideTyping();
         appendMessage("ai", result.greeting);
