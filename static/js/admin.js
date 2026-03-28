@@ -64,36 +64,19 @@
       ssoBtn.addEventListener("click", onSSOLogin);
     }
 
-    // Check for existing session
-    const savedSession = localStorage.getItem("synap_admin_session");
-    if (savedSession) {
-      try {
-        const parsed = JSON.parse(savedSession);
-        // Refresh the token
-        const refreshResult = await refreshSession(parsed.refresh_token);
-        if (refreshResult) {
-          authToken = refreshResult.access_token;
-          currentUser = refreshResult.user;
-          await loadAccessAndShowPicker();
-          return;
-        }
-      } catch {
-        localStorage.removeItem("synap_admin_session");
-      }
-    }
-
-    // Wire up events
+    // Wire up all events first (before any early returns)
     loginForm.addEventListener("submit", onLogin);
     pickerLogout.addEventListener("click", onLogout);
     pickerAllBtn.addEventListener("click", () => enterDashboard(""));
     logoutBtn.addEventListener("click", onLogout);
 
-    // Nav links
-    $$(".nav-link").forEach((link) => {
-      link.addEventListener("click", (e) => {
+    // Nav links (event delegation so hidden links work when shown later)
+    document.querySelector(".sidebar-nav").addEventListener("click", (e) => {
+      const link = e.target.closest(".nav-link");
+      if (link) {
         e.preventDefault();
         switchView(link.dataset.view);
-      });
+      }
     });
 
     // Study switcher
@@ -130,6 +113,23 @@
 
     // Builder
     initBuilder();
+
+    // Check for existing session (after all events are bound)
+    const savedSession = localStorage.getItem("synap_admin_session");
+    if (savedSession) {
+      try {
+        const parsed = JSON.parse(savedSession);
+        const refreshResult = await refreshSession(parsed.refresh_token);
+        if (refreshResult) {
+          authToken = refreshResult.access_token;
+          currentUser = refreshResult.user;
+          await loadAccessAndShowPicker();
+          return;
+        }
+      } catch {
+        localStorage.removeItem("synap_admin_session");
+      }
+    }
   }
 
   // ── Auth: Supabase ─────────────────────────────────────────
@@ -625,17 +625,19 @@
   let managingUserId = null;
 
   async function loadUsers() {
+    console.log("[Admin] loadUsers called");
     const body = $("#users-body");
     const empty = $("#users-empty");
     body.innerHTML = "";
     empty.hidden = true;
 
     try {
-      // Admins can read all researchers via RLS policy
       const { data: researchers } = await query("researchers", {
         select: "id,email,display_name,role,created_at",
         order: "created_at.desc",
       });
+
+      console.log("[Admin] Researchers loaded:", researchers);
 
       if (!researchers || researchers.length === 0) {
         empty.hidden = false;
