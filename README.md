@@ -14,7 +14,7 @@ On startup, the frontend loads a JSON interview config that defines the session.
 
 The frontend operates in two modes:
 - **Mock mode** — Local-only with canned responses and keyword-based theme detection. No backend required.
-- **Live mode** — Connects to Supabase Edge Functions or Azure Functions for real AI responses and persistent storage.
+- **Live mode** — Connects to Supabase Edge Functions (tested) or Azure Functions (code-complete, untested) for real AI responses and persistent storage.
 
 ### Orchestration Adapter
 
@@ -49,13 +49,13 @@ On each turn, the adapter:
 
 Synap supports four configurable AI backends. Set `ai_provider` in the interview config to switch between them:
 
-| Provider | Config Value | Env Var(s) Required |
-|----------|-------------|-------------------|
-| Anthropic Claude | `claude` | `ANTHROPIC_API_KEY` |
-| OpenAI | `openai` | `OPENAI_API_KEY` |
-| Azure OpenAI | `azure` | `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_DEPLOYMENT` |
-| Google Gemini | `gemini` | `GEMINI_API_KEY` |
-| Mock (no API) | `mock` | None |
+| Provider | Config Value | Env Var(s) Required | Status |
+|----------|-------------|-------------------|--------|
+| Anthropic Claude | `claude` | `ANTHROPIC_API_KEY` | Tested |
+| OpenAI | `openai` | `OPENAI_API_KEY` | Code-complete, untested |
+| Azure OpenAI | `azure` | `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_DEPLOYMENT` | Code-complete, untested |
+| Google Gemini | `gemini` | `GEMINI_API_KEY` | Code-complete, untested |
+| Mock (no API) | `mock` | None | Tested |
 
 ### Interview Config (JSON)
 
@@ -146,32 +146,34 @@ Synap/
 
 ## Deployment Targets
 
-| Environment | Orchestration | Storage | Identity |
-|-------------|--------------|---------|----------|
-| Public | Supabase Edge Functions | Supabase (Postgres) | None (anonymous) |
-| Corporate (preferred) | Azure Functions | Cosmos DB, Azure SQL, SharePoint, or JSON files | Azure AD (silent enrichment) |
-| Corporate (fallback) | Power Automate | SharePoint Lists | Azure AD |
-| Standalone | None (mock mode) | JSON files (local) | None |
+| Environment | Orchestration | Storage | Identity | Status |
+|-------------|--------------|---------|----------|--------|
+| Public | Supabase Edge Functions | Supabase (Postgres) | None (anonymous) | Tested |
+| Corporate (preferred) | Azure Functions | Cosmos DB, Azure SQL, SharePoint, or JSON files | Azure AD (silent enrichment) | Code-complete, untested |
+| Corporate (fallback) | Power Automate | SharePoint Lists | Azure AD | Scaffolded (flow definitions, not importable packages) |
+| Standalone | None (mock mode) | JSON files (local) | None | Tested |
 
 ### Pluggable Storage
 
 The Azure Functions backend supports five storage backends, configured via `STORAGE_PROVIDER` env var or the config's `storage.provider` field:
 
-| Provider | Config Value | Best For |
-|----------|-------------|----------|
-| JSON Files | `json-file` | Zero-infrastructure, local testing, offline collection |
-| Cosmos DB | `cosmosdb` | Production corporate deployments at scale |
-| Azure SQL | `azuresql` | Organizations with existing SQL infrastructure |
-| SharePoint Lists | `sharepoint` | Quick deployment using existing Microsoft 365 |
-| Supabase | `supabase` | Public deployments (uses Supabase Edge Functions directly) |
+| Provider | Config Value | Best For | Status |
+|----------|-------------|----------|--------|
+| JSON Files | `json-file` | Zero-infrastructure, local testing, offline collection | Code-complete, untested |
+| Cosmos DB | `cosmosdb` | Production corporate deployments at scale | Code-complete, untested |
+| Azure SQL | `azuresql` | Organizations with existing SQL infrastructure | Code-complete, untested |
+| SharePoint Lists | `sharepoint` | Quick deployment using existing Microsoft 365 | Code-complete, untested |
+| Supabase | `supabase` | Public deployments (uses Supabase Edge Functions directly) | Tested |
 
 ### Identity & Profile Enrichment
 
-In corporate environments, Synap can silently detect Azure AD identity and enrich session data with participant profile information (department, job title, location, employee ID). Configure via the `identity` block in the interview config:
+In corporate environments, Synap is designed to silently detect Azure AD identity and enrich session data with participant profile information (department, job title, location, employee ID). Configure via the `identity` block in the interview config:
 
 - **Auto-detect** — Tries MSAL silent auth; falls back to public mode if unavailable
 - **Corporate override** — Forces corporate mode (requires MSAL config)
 - **Anonymization** — Hashes PII (names, IDs) while preserving categorical data (department, title)
+
+> **Status:** The server-side enrichment logic and frontend MSAL detection are code-complete but have not been tested against a live Azure AD tenant. The corporate SSO login for the admin dashboard is stubbed.
 
 ## Getting Started
 
@@ -277,9 +279,11 @@ The admin dashboard requires its own configuration file and at least one researc
 - Admins see all studies automatically
 - Researchers only see studies they've been granted access to
 - Grant access via the Users view: click "Access" on a researcher, enter the study ID and access level
-- Access levels: `viewer` (read-only), `editor` (can modify), `owner` (can manage other users' access)
+- Access levels: `viewer` (read-only), `editor` (can modify), `owner` (full control — owner-based delegation not yet implemented in UI)
 
 ### Corporate Mode (Azure Functions)
+
+> **Status:** Code-complete but untested. These instructions are based on the intended design and have not been validated end-to-end.
 
 1. Navigate to the `azure/` directory and install dependencies:
    ```bash
@@ -305,10 +309,10 @@ The admin dashboard requires its own configuration file and at least one researc
 
 ## Build Phases
 
-1. **Static chatbot** — HTML chat UI with mock AI and consent flow. *(Complete)*
-2. **Supabase backend** — Edge Functions, multi-provider AI, persistent storage. *(Complete)*
-3. **Corporate backend** — Azure Functions, pluggable storage (Cosmos DB/SQL/SharePoint/JSON), identity enrichment, Power Automate fallback. *(Complete)*
-4. **Researcher admin UI** — Dashboard with sessions, transcripts, themes, export, config builder, user management, and study-scoped access control. *(Complete)*
+1. **Static chatbot** — HTML chat UI with mock AI and consent flow. *(Complete, tested)*
+2. **Supabase backend** — Edge Functions, multi-provider AI, persistent storage. *(Complete, tested with Claude)*
+3. **Corporate backend** — Azure Functions, pluggable storage (Cosmos DB/SQL/SharePoint/JSON), identity enrichment, Power Automate fallback. *(Code-complete, untested — needs validation against live Azure environment)*
+4. **Researcher admin UI** — Dashboard with sessions, transcripts, themes, export, config builder, user management, and study-scoped access control. *(Complete, tested with Supabase. Participant profile display not yet wired up. Corporate SSO login stubbed.)*
 
 ## License
 
