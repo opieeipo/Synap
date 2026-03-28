@@ -224,38 +224,45 @@
   async function loadAccessAndShowPicker() {
     // Load researcher profile
     try {
-      const { data: researchers } = await query("researchers", { select: "role,display_name" });
-      if (researchers.length > 0) {
+      const { data: researchers } = await query("researchers", { select: "id,role,display_name" });
+      console.log("[Admin] Researcher profile:", researchers);
+      if (researchers && researchers.length > 0) {
         currentUser.role = researchers[0].role;
         currentUser.display_name = researchers[0].display_name || currentUser.email;
       }
-    } catch {
-      // Researcher table might not exist yet — continue
+    } catch (err) {
+      console.warn("[Admin] Failed to load researcher profile:", err);
     }
 
-    // Load accessible studies
+    console.log("[Admin] Current user role:", currentUser.role);
+
+    // Load accessible studies from study_access
     try {
       const { data: access } = await query("study_access", { select: "config_id,access_level" });
+      console.log("[Admin] Study access:", access);
       accessibleStudies = access || [];
-    } catch {
+    } catch (err) {
+      console.warn("[Admin] Failed to load study access:", err);
       accessibleStudies = [];
     }
 
-    // If admin, also get all unique config_ids
+    // If admin, also get all unique config_ids from sessions
     if (currentUser.role === "admin") {
       try {
         const { data: sessions } = await query("sessions", { select: "config_id" });
-        const allConfigs = [...new Set(sessions.map((s) => s.config_id))];
-        // Merge with existing access
+        console.log("[Admin] Admin sessions query:", sessions);
+        const allConfigs = [...new Set((sessions || []).map((s) => s.config_id))];
         for (const cid of allConfigs) {
           if (!accessibleStudies.find((a) => a.config_id === cid)) {
             accessibleStudies.push({ config_id: cid, access_level: "admin" });
           }
         }
-      } catch {
-        // Continue with whatever we have
+      } catch (err) {
+        console.warn("[Admin] Failed to load sessions for admin:", err);
       }
     }
+
+    console.log("[Admin] Final accessible studies:", accessibleStudies);
 
     showStudyPicker();
   }
